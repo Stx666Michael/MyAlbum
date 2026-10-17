@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -33,5 +34,10 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+  },
+  test: {
+    include: ['tests/**/*.test.{ts,tsx}'],
+    // Demo-album tests regenerate the shared sample-photos folder, so test files must not run in parallel
+    fileParallelism: false,
   },
 });
