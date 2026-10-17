@@ -6,6 +6,7 @@ import path from 'node:path';
 import exifr from 'exifr';
 import { buildDemoSampleTrackGpx, ensureDemoPhotosGenerated } from './demoGenerator.ts';
 import { autoLocatePhotos, autoLocateTargetTimes } from './autoLocate.ts';
+import { createAiLocateSession } from './aiLocator.ts';
 import { createGeocodeSession } from './geocoder.ts';
 import { readTrackFile, TrackFormatError } from './trackReader.ts';
 import { parseGpx, sortByUtc } from '../src/utils/autoLocate.ts';
@@ -140,6 +141,26 @@ function parseAutoLocateRequest(value: unknown): AutoLocateRequest {
   if (rawOptions.enableNominatim !== undefined && typeof rawOptions.enableNominatim !== 'boolean') {
     throw new ApiRequestError('options.enableNominatim must be a boolean', 400);
   }
+  if (rawOptions.enableAi !== undefined && typeof rawOptions.enableAi !== 'boolean') {
+    throw new ApiRequestError('options.enableAi must be a boolean', 400);
+  }
+  if (
+    rawOptions.aiProvider !== undefined &&
+    rawOptions.aiProvider !== 'local-onnx' &&
+    rawOptions.aiProvider !== 'ollama' &&
+    rawOptions.aiProvider !== 'cloud-vlm'
+  ) {
+    throw new ApiRequestError('options.aiProvider must be "local-onnx", "ollama", or "cloud-vlm"', 400);
+  }
+  if (rawOptions.aiModel !== undefined && typeof rawOptions.aiModel !== 'string') {
+    throw new ApiRequestError('options.aiModel must be a string', 400);
+  }
+  if (rawOptions.aiEndpoint !== undefined && typeof rawOptions.aiEndpoint !== 'string') {
+    throw new ApiRequestError('options.aiEndpoint must be a string', 400);
+  }
+  if (rawOptions.aiApiKey !== undefined && typeof rawOptions.aiApiKey !== 'string') {
+    throw new ApiRequestError('options.aiApiKey must be a string', 400);
+  }
 
   let trackSource: AutoLocateTrackSource | undefined;
   if (value.trackSource !== undefined) {
@@ -166,6 +187,11 @@ function parseAutoLocateRequest(value: unknown): AutoLocateRequest {
     enableCompanion: rawOptions.enableCompanion,
     enableGazetteer: rawOptions.enableGazetteer,
     enableNominatim: rawOptions.enableNominatim === true,
+    enableAi: rawOptions.enableAi === true,
+    ...(rawOptions.aiProvider ? { aiProvider: rawOptions.aiProvider } : {}),
+    ...(rawOptions.aiModel ? { aiModel: rawOptions.aiModel } : {}),
+    ...(rawOptions.aiEndpoint ? { aiEndpoint: rawOptions.aiEndpoint } : {}),
+    ...(rawOptions.aiApiKey ? { aiApiKey: rawOptions.aiApiKey } : {}),
   };
   return {
     folderPath: value.folderPath,
@@ -667,12 +693,21 @@ export function createApiApp() {
       }
 
       const geocoder = request.options.enableNominatim ? createGeocodeSession() : undefined;
+      const aiSession = request.options.enableAi
+        ? createAiLocateSession(scanResult.photos, {
+            provider: request.options.aiProvider,
+            model: request.options.aiModel,
+            endpoint: request.options.aiEndpoint,
+            apiKey: request.options.aiApiKey,
+          })
+        : undefined;
       const result = await autoLocatePhotos(
         scanResult.photos,
         request.photoIds,
         request.options,
         track,
         geocoder,
+        aiSession,
       );
       res.json(result);
     } catch (error: unknown) {

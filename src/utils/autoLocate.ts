@@ -45,7 +45,7 @@ const JITTER_DEG = 0.0003;
 const MIN_TOKEN_LENGTH = 3;
 const FNV_OFFSET_BASIS = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
-const STRATEGY_PRECEDENCE: readonly AutoLocateStrategy[] = ['track', 'companion', 'gazetteer', 'nominatim'];
+const STRATEGY_PRECEDENCE: readonly AutoLocateStrategy[] = ['track', 'companion', 'gazetteer', 'nominatim', 'ai'];
 
 const GPX_POINT_RE = /<(trkpt|rtept|wpt)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1\s*>)/gi;
 const GPX_ATTRIBUTE_RE = /\b(lat|lon)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;

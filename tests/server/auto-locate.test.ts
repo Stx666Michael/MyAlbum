@@ -337,4 +337,117 @@ describe('track browsing and Nominatim opt-in', () => {
       else process.env.MYALBUM_DATA_DIR = previousDataDir;
     }
   });
+
+  it('validates AI options and rejects invalid inputs with HTTP 400', async () => {
+    const folderPath = await createPhotoFolder('ai-validation-album', [
+      { folder: 'Misc', fileName: 'sample.jpg', timestamp: BASE_TIME },
+    ]);
+    const scan = await scanFolder(folderPath);
+    const targetId = scan.body.photos[0].id;
+
+    // Bad enableAi
+    await request(app)
+      .post('/api/photos/auto-locate')
+      .send({
+        folderPath,
+        photoIds: [targetId],
+        options: options({ enableAi: 'not-a-bool' }),
+      })
+      .expect(400)
+      .expect((res) => expect(res.body.error).toContain('options.enableAi must be a boolean'));
+
+    // Bad aiProvider
+    await request(app)
+      .post('/api/photos/auto-locate')
+      .send({
+        folderPath,
+        photoIds: [targetId],
+        options: options({ enableAi: true, aiProvider: 'super-ai' }),
+      })
+      .expect(400)
+      .expect((res) =>
+        expect(res.body.error).toContain('options.aiProvider must be "local-onnx", "ollama", or "cloud-vlm"'),
+      );
+  });
+
+  it('matches visually similar photos via local-onnx AI vision and caches predictions', async () => {
+    const folderPath = await createPhotoFolder('ai-vision-album', [
+      {
+        folder: 'Tokyo',
+        fileName: 'shinjuku-anchor.jpg',
+        timestamp: '2025-03-14T12:00:00.000Z',
+        lat: 35.6938,
+        lng: 139.7036,
+      },
+      {
+        folder: 'Misc',
+        fileName: 'mystery-photo.jpg',
+        timestamp: '2025-03-14T12:05:00.000Z',
+      },
+    ]);
+    const scan = await scanFolder(folderPath);
+    const targetPhoto = scan.body.photos.find((p: any) => p.location === null);
+    expect(targetPhoto).toBeDefined();
+
+    const previousDataDir = process.env.MYALBUM_DATA_DIR;
+    const testDataDir = path.join(scratchDir, 'ai-test-data');
+    process.env.MYALBUM_DATA_DIR = testDataDir;
+
+    try {
+      // 1. With enableAi: false, the unlocated photo produces no match
+      const disabledRes = await request(app)
+        .post('/api/photos/auto-locate')
+        .send({
+          folderPath,
+          photoIds: [targetPhoto.id],
+          options: options({ enableAi: false }),
+        })
+        .expect(200);
+      expect(disabledRes.body.suggestions).toHaveLength(0);
+      expect(disabledRes.body.unmatchedPhotoIds).toEqual([targetPhoto.id]);
+      expect(disabledRes.body.stats.aiInferences).toBe(0);
+
+      // 2. With enableAi: true and local-onnx, matches anchor photo's location via visual similarity
+      const enabledRes = await request(app)
+        .post('/api/photos/auto-locate')
+        .send({
+          folderPath,
+          photoIds: [targetPhoto.id],
+          options: options({ enableAi: true, aiProvider: 'local-onnx' }),
+        })
+        .expect(200);
+
+      expect(enabledRes.body.suggestions).toHaveLength(1);
+      const suggestion = enabledRes.body.suggestions[0];
+      expect(suggestion.strategy).toBe('ai');
+      expect(suggestion.location.lat).toBeCloseTo(35.6938);
+      expect(suggestion.location.lng).toBeCloseTo(139.7036);
+      expect(suggestion.confidence).toBeGreaterThanOrEqual(0.65);
+      expect(suggestion.reason).toContain('AI visual similarity match');
+      expect(enabledRes.body.attribution).toContain('Visual similarity & GeoCLIP');
+      expect(enabledRes.body.stats.byStrategy.ai).toBe(1);
+      expect(enabledRes.body.stats.aiInferences).toBe(1);
+
+      // Verify persistent cache file was written
+      const cachePath = path.join(testDataDir, 'ai-locate-cache.json');
+      const cacheData = JSON.parse(await fs.readFile(cachePath, 'utf8'));
+      expect(cacheData.version).toBe(1);
+      expect(Object.keys(cacheData.hits).length).toBeGreaterThan(0);
+
+      // 3. Re-running returns cached result
+      const cachedRes = await request(app)
+        .post('/api/photos/auto-locate')
+        .send({
+          folderPath,
+          photoIds: [targetPhoto.id],
+          options: options({ enableAi: true, aiProvider: 'local-onnx' }),
+        })
+        .expect(200);
+      expect(cachedRes.body.suggestions[0].strategy).toBe('ai');
+      expect(cachedRes.body.stats.aiInferences).toBe(0);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.MYALBUM_DATA_DIR;
+      else process.env.MYALBUM_DATA_DIR = previousDataDir;
+    }
+  });
 });

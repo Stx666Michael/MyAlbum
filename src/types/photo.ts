@@ -110,7 +110,8 @@ export interface BrowseResponse {
   files?: BrowseFileEntry[];
 }
 
-export type AutoLocateStrategy = 'track' | 'companion' | 'gazetteer' | 'nominatim';
+export type AutoLocateStrategy = 'track' | 'companion' | 'gazetteer' | 'nominatim' | 'ai';
+export type AiLocateProvider = 'local-onnx' | 'ollama' | 'cloud-vlm';
 export type AutoLocateWindowMinutes = 30 | 120 | 360 | 1440 | 10080;
 export type AutoLocateTrackSource = { type: 'file'; path: string } | { type: 'sample' };
 export interface AutoLocateOptions {
@@ -121,6 +122,11 @@ export interface AutoLocateOptions {
   enableCompanion: boolean;
   enableGazetteer: boolean;
   enableNominatim: boolean;
+  enableAi?: boolean;
+  aiProvider?: AiLocateProvider;
+  aiModel?: string;
+  aiEndpoint?: string;
+  aiApiKey?: string;
 }
 export interface AutoLocateRequest {
   folderPath: string;
@@ -143,6 +149,7 @@ export interface AutoLocateStats {
   byStrategy: Partial<Record<AutoLocateStrategy, number>>;
   trackPoints: number;
   geocodeLookups: number;
+  aiInferences?: number;
 }
 export interface AutoLocateResponse {
   suggestions: AutoLocateSuggestion[];

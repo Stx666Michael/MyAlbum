@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  AiLocateProvider,
   AutoLocateOptions,
   AutoLocateRequest,
   AutoLocateResponse,
@@ -45,13 +46,14 @@ const WINDOW_OPTIONS: { label: string; value: AutoLocateWindowMinutes }[] = [
   { label: '7 days', value: 10080 },
 ];
 
-const STRATEGIES: AutoLocateStrategy[] = ['track', 'companion', 'gazetteer', 'nominatim'];
+const STRATEGIES: AutoLocateStrategy[] = ['track', 'companion', 'gazetteer', 'nominatim', 'ai'];
 
 const STRATEGY_LABELS: Record<AutoLocateStrategy, string> = {
   track: 'Track',
   companion: 'Companion',
   gazetteer: 'Folder/file name',
   nominatim: 'Nominatim',
+  ai: 'AI Vision',
 };
 
 const STRATEGY_BADGE_CLASSES: Record<AutoLocateStrategy, string> = {
@@ -59,6 +61,7 @@ const STRATEGY_BADGE_CLASSES: Record<AutoLocateStrategy, string> = {
   companion: 'border-violet-500/30 bg-violet-500/15 text-violet-300',
   gazetteer: 'border-amber-500/30 bg-amber-500/15 text-amber-300',
   nominatim: 'border-teal-500/30 bg-teal-500/15 text-teal-300',
+  ai: 'border-fuchsia-500/30 bg-fuchsia-500/15 text-fuchsia-300',
 };
 
 const DEFAULT_MIN_CONFIDENCE = 0.65;
@@ -129,6 +132,11 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
   const [enableCompanion, setEnableCompanion] = useState(true);
   const [enableGazetteer, setEnableGazetteer] = useState(true);
   const [enableNominatim, setEnableNominatim] = useState(false);
+  const [enableAi, setEnableAi] = useState(false);
+  const [aiProvider, setAiProvider] = useState<AiLocateProvider>('local-onnx');
+  const [aiModel, setAiModel] = useState('');
+  const [aiEndpoint, setAiEndpoint] = useState('');
+  const [aiApiKey, setAiApiKey] = useState('');
   const [trackSource, setTrackSource] = useState<AutoLocateTrackSource | null>(null);
 
   const [isBrowserOpen, setIsBrowserOpen] = useState(false);
@@ -228,6 +236,11 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
       enableCompanion,
       enableGazetteer,
       enableNominatim,
+      enableAi,
+      aiProvider,
+      ...(aiModel.trim() ? { aiModel: aiModel.trim() } : {}),
+      ...(aiEndpoint.trim() ? { aiEndpoint: aiEndpoint.trim() } : {}),
+      ...(aiApiKey.trim() ? { aiApiKey: aiApiKey.trim() } : {}),
     };
     const request: AutoLocateRequest = {
       folderPath,
@@ -587,6 +600,87 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
               <p className="mt-1 pl-6 text-[11px] text-slate-500">
                 Sends unmatched folder and file place names (not photos) to openstreetmap.org. Results are cached on this computer.
               </p>
+            </div>
+            <div>
+              <label className={CHECKBOX_LABEL_CLASS}>
+                <input
+                  type="checkbox"
+                  checked={enableAi}
+                  onChange={(e) => setEnableAi(e.target.checked)}
+                  className={CHECKBOX_CLASS}
+                  data-testid="auto-locate-ai"
+                />
+                AI Vision (Visual similarity & ML)
+              </label>
+              <p className="mt-1 pl-6 text-[11px] text-slate-500">
+                Matches unmatched photos against located photos using visual features, or queries a vision model. Strictly local & cached by default.
+              </p>
+              {enableAi && (
+                <div className="mt-2.5 ml-6 space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                    <span className="text-[11px] text-slate-400">Provider:</span>
+                    <select
+                      value={aiProvider}
+                      onChange={(e) => setAiProvider(e.target.value as AiLocateProvider)}
+                      className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
+                      data-testid="auto-locate-ai-provider"
+                    >
+                      <option value="local-onnx">Local ONNX / Visual Similarity</option>
+                      <option value="ollama">Ollama (Local VLM)</option>
+                      <option value="cloud-vlm">Cloud Vision API</option>
+                    </select>
+                  </div>
+                  {aiProvider === 'ollama' && (
+                    <div className="space-y-1 pt-1 text-[11px]">
+                      <div className="text-slate-400">Endpoint & Model:</div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <input
+                          type="text"
+                          placeholder="http://localhost:11434"
+                          value={aiEndpoint}
+                          onChange={(e) => setAiEndpoint(e.target.value)}
+                          className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        />
+                        <input
+                          type="text"
+                          placeholder="qwen2.5-vl:latest"
+                          value={aiModel}
+                          onChange={(e) => setAiModel(e.target.value)}
+                          className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {aiProvider === 'cloud-vlm' && (
+                    <div className="space-y-1.5 pt-1 text-[11px]">
+                      <div className="text-slate-400">API Key & Endpoint:</div>
+                      <input
+                        type="password"
+                        placeholder="API Key (or env AI_VLM_API_KEY)"
+                        value={aiApiKey}
+                        onChange={(e) => setAiApiKey(e.target.value)}
+                        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                      />
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <input
+                          type="text"
+                          placeholder="https://api.openai.com/v1"
+                          value={aiEndpoint}
+                          onChange={(e) => setAiEndpoint(e.target.value)}
+                          className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        />
+                        <input
+                          type="text"
+                          placeholder="gpt-4o-mini"
+                          value={aiModel}
+                          onChange={(e) => setAiModel(e.target.value)}
+                          className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </section>
 

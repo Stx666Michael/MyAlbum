@@ -418,18 +418,23 @@ describe('pickSuggestion', () => {
     reason: 'test',
   });
 
-  it('prefers track, then companion, then gazetteer, then nominatim', () => {
+  it('prefers track, then companion, then gazetteer, then nominatim, then ai', () => {
     const all = [
-      candidate('nominatim', 0.99),
+      candidate('ai', 0.99),
+      candidate('nominatim', 0.95),
       candidate('gazetteer', 0.8),
       candidate('companion', 0.7),
       candidate('track', 0.91),
     ];
     expect(pickSuggestion(all)?.strategy).toBe('track');
     expect(pickSuggestion(all.filter((item) => item.strategy !== 'track'))?.strategy).toBe('companion');
-    const withoutTrackOrCompanion = all.filter((item) => item.strategy === 'gazetteer' || item.strategy === 'nominatim');
+    const withoutTrackOrCompanion = all.filter(
+      (item) => item.strategy === 'gazetteer' || item.strategy === 'nominatim' || item.strategy === 'ai',
+    );
     expect(pickSuggestion(withoutTrackOrCompanion)?.strategy).toBe('gazetteer');
-    expect(pickSuggestion([candidate('nominatim', 0.5)])?.strategy).toBe('nominatim');
+    const nominatimAndAi = all.filter((item) => item.strategy === 'nominatim' || item.strategy === 'ai');
+    expect(pickSuggestion(nominatimAndAi)?.strategy).toBe('nominatim');
+    expect(pickSuggestion([candidate('ai', 0.75)])?.strategy).toBe('ai');
   });
 
   it('ranks a lower-confidence track above a higher-confidence companion', () => {

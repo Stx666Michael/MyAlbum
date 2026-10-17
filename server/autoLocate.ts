@@ -22,6 +22,7 @@ import {
   NOMINATIM_ATTRIBUTION,
   type GeocodeSession,
 } from './geocoder.ts';
+import type { AiLocateSession } from './aiLocator.ts';
 
 export interface AutoLocateTrack {
   points: readonly TrackPoint[];
@@ -81,6 +82,7 @@ export async function autoLocatePhotos(
   options: AutoLocateOptions,
   track: AutoLocateTrack | null,
   geocoder?: GeocodeSession,
+  aiSession?: AiLocateSession,
 ): Promise<AutoLocateResponse> {
   const targets = requestedUnlocatedPhotos(photos, photoIds);
   const windowMs = options.windowMinutes * 60_000;
@@ -218,7 +220,33 @@ export async function autoLocatePhotos(
     warnings.push(...geocoder.warnings);
   }
 
-  const strategies: AutoLocateStrategy[] = ['track', 'companion', 'gazetteer', 'nominatim'];
+  if (options.enableAi) {
+    if (!aiSession) {
+      throw new Error('AI locate is enabled but no AI locate session is available');
+    }
+    for (const photo of targets) {
+      if (hasCandidate(candidatesByPhoto.get(photo.id))) continue;
+      const hit = await aiSession.locate(photo);
+      if (hit) {
+        addCandidate(
+          candidatesByPhoto,
+          photo.id,
+          locationCandidate(
+            'ai',
+            hit.lat,
+            hit.lng,
+            hit.name,
+            hit.confidence,
+            hit.reason,
+          ),
+        );
+      }
+      if (aiSession.halted) break;
+    }
+    warnings.push(...aiSession.warnings);
+  }
+
+  const strategies: AutoLocateStrategy[] = ['track', 'companion', 'gazetteer', 'nominatim', 'ai'];
   const byStrategy: Partial<Record<AutoLocateStrategy, number>> = Object.fromEntries(
     strategies.map((strategy) => [strategy, 0]),
   );
@@ -245,17 +273,28 @@ export async function autoLocatePhotos(
   }
 
   const hasNominatimSuggestion = suggestions.some((suggestion) => suggestion.strategy === 'nominatim');
+  const hasAiSuggestion = suggestions.some((suggestion) => suggestion.strategy === 'ai');
+  const attributions: string[] = [];
+  if (hasNominatimSuggestion) {
+    attributions.push(NOMINATIM_ATTRIBUTION);
+  }
+  if (hasAiSuggestion && aiSession?.attribution) {
+    attributions.push(aiSession.attribution);
+  }
+  const attribution = attributions.length > 0 ? attributions.join(' | ') : null;
+
   return {
     suggestions,
     unmatchedPhotoIds,
     warnings,
-    attribution: hasNominatimSuggestion ? NOMINATIM_ATTRIBUTION : null,
+    attribution,
     stats: {
       targets: targets.length,
       matched: suggestions.length,
       byStrategy,
       trackPoints: sortedTrackPoints.length,
       geocodeLookups: geocoder?.lookupCount ?? 0,
+      aiInferences: aiSession?.inferenceCount ?? 0,
     },
   };
 }
