@@ -9,6 +9,11 @@ dist/
 sample-photos/
 .myalbum-overrides.json
 
+# Playwright e2e artifacts
+playwright-report/
+test-results/
+blob-report/
+
 # Logs & OS files
 *.log
 npm-debug.log*
