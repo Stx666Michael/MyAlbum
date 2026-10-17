@@ -7,7 +7,7 @@ export interface DayColumnGroup {
   displayDate: string;  // e.g. "Mar 14, 2025" | "Mar 10–16, 2025" | "Mar 2025" | "2025"
   weekday: string;      // e.g. "Friday" | "Week 11 • 2 days" | "Monthly • 2 days" | "Yearly • 5 mos (7d)"
   epochDay: number;     // Days since 1970-01-01 UTC (start of bucket)
-  photos: PhotoItem[];  // Sorted oldest (top) to newest (bottom)
+  photos: PhotoItem[];  // Sorted newest (top) to oldest (bottom)
   speedPxPerSec: number;
   xOffsetPx: number;
   daysSincePrev: number;
@@ -299,8 +299,8 @@ export function buildTimelineDayColumns(
 
   sortedBuckets.forEach((bucket, index) => {
     const sortedPhotos = bucket.photos.slice().sort((a, b) => {
-      const diff = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
-      return diff !== 0 ? diff : a.fileName.localeCompare(b.fileName);
+      const diff = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      return diff !== 0 ? diff : b.fileName.localeCompare(a.fileName);
     });
 
     const activeDaysCount = bucket.dayKeys.size;

@@ -15,10 +15,10 @@ import {
   FolderOpen,
   ChevronsUp,
   ChevronsDown,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { PhotoItem } from '../types/photo.ts';
 import {
-  BASE_TIME_CARD_HEIGHT_PX,
   BASE_TIME_CARD_WIDTH_PX,
   MAX_TIMELINE_ZOOM,
   MIN_TIMELINE_ZOOM,
@@ -116,6 +116,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   // Flow animation & string end fast-forward/backward hover state
   const [isFlowing, setIsFlowing] = useState(true);
   const [speedMultiplier, setSpeedMultiplier] = useState(1);
+  const [isSettingsHovered, setIsSettingsHovered] = useState(false);
   const [hoveredDayKey, setHoveredDayKey] = useState<string | null>(null);
   const [hoveredPhotoId, setHoveredPhotoId] = useState<string | null>(null);
   const [hoveredStringEnd, setHoveredStringEnd] = useState<{
@@ -123,18 +124,47 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     direction: Exclude<StringEndHoverDirection, null>;
   } | null>(null);
 
+  const speedMultiplierRef = useRef<number>(1);
+  const columnsRef = useRef<DayColumnGroup[]>(columns);
+  const speedSliderRef = useRef<HTMLInputElement | null>(null);
   const hoveredDayKeyRef = useRef<string | null>(null);
   const hoveredPhotoIdRef = useRef<string | null>(null);
   const hoveredStringEndRef = useRef<{
     dayKey: string;
     direction: Exclude<StringEndHoverDirection, null>;
   } | null>(null);
+  speedMultiplierRef.current = speedMultiplier;
+  columnsRef.current = columns;
   hoveredDayKeyRef.current = hoveredDayKey;
   hoveredPhotoIdRef.current = hoveredPhotoId;
   hoveredStringEndRef.current = hoveredStringEnd;
 
   const columnPhasesRef = useRef<Record<string, number>>({});
   const [, setFrameTick] = useState(0);
+
+  const applySpeedMultiplier = useCallback((rawValue: number) => {
+    if (!Number.isFinite(rawValue)) return;
+    const nextSpeed = Math.max(0.25, Math.min(2.5, Number(rawValue.toFixed(2))));
+    speedMultiplierRef.current = nextSpeed;
+    setSpeedMultiplier(nextSpeed);
+  }, []);
+
+  // Ensure native input/change events on the range slider always update speedMultiplier (including direct DOM value updates)
+  useEffect(() => {
+    const el = speedSliderRef.current;
+    if (!el) return;
+    const onSliderEvent = (e: Event) => {
+      const target = e.currentTarget as HTMLInputElement | null;
+      if (!target) return;
+      applySpeedMultiplier(Number(target.value));
+    };
+    el.addEventListener('input', onSliderEvent);
+    el.addEventListener('change', onSliderEvent);
+    return () => {
+      el.removeEventListener('input', onSliderEvent);
+      el.removeEventListener('change', onSliderEvent);
+    };
+  }, [applySpeedMultiplier, photos.length]);
 
   // Measure container
   useEffect(() => {
@@ -193,7 +223,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       );
       if (isNewActivation) {
         // Apply immediate frame step so fast-forward/backward is responsive right on hover entry
-        const velocity = computeStringFlowVelocity(col.speedPxPerSec, speedMultiplier, {
+        const velocity = computeStringFlowVelocity(col.speedPxPerSec, speedMultiplierRef.current, {
           isFlowing,
           isColumnHovered: true,
           isPhotoHovered: false,
@@ -204,7 +234,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         setFrameTick((t) => (t + 1) % 1000000);
       }
     },
-    [isFlowing, speedMultiplier]
+    [isFlowing]
   );
 
   const clearStringEndHover = useCallback((dayKey: string) => {
@@ -224,12 +254,15 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       const dt = Math.min(0.064, Math.max(0, (now - lastTime) / 1000));
       lastTime = now;
 
-      for (const col of columns) {
+      const currentCols = columnsRef.current;
+      const currentSpeedMultiplier = speedMultiplierRef.current;
+
+      for (const col of currentCols) {
         const endDir =
           hoveredStringEndRef.current?.dayKey === col.dayKey
             ? hoveredStringEndRef.current.direction
             : null;
-        const velocity = computeStringFlowVelocity(col.speedPxPerSec, speedMultiplier, {
+        const velocity = computeStringFlowVelocity(col.speedPxPerSec, currentSpeedMultiplier, {
           isFlowing,
           isColumnHovered: hoveredDayKeyRef.current === col.dayKey,
           isPhotoHovered: Boolean(hoveredPhotoIdRef.current),
@@ -245,7 +278,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [isFlowing, speedMultiplier, columns, hoveredStringEnd]);
+  }, [isFlowing, hoveredStringEnd]);
 
   // Center timeline on screen by default, and keep horizontal pan centered/clamped when columns merge or resize
   useEffect(() => {
@@ -274,12 +307,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     });
   }, [totalTimelineWidth, viewportSize.width]);
 
-  // Center timeline on screen and align photo #1 at the top of each column when reset
+  // Center timeline on screen, reset speed slider & timeline settings, and align photo #1 at the top of each column when reset
   const handleResetView = useCallback(() => {
     const defaultMetrics = getTimelineZoomMetrics(1, COLUMN_WIDTH, BASE_COLUMN_STEP);
     const defaultCols = buildTimelineDayColumns(
       photos,
-      spacingMode,
+      'compact',
       defaultMetrics.columnStepPx,
       defaultMetrics.granularity
     );
@@ -288,6 +321,13 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         ? defaultCols[defaultCols.length - 1].xOffsetPx + defaultMetrics.columnWidthPx
         : 0;
     hasUserPannedRef.current = false;
+    speedMultiplierRef.current = 1;
+    if (speedSliderRef.current) {
+      speedSliderRef.current.value = '1';
+    }
+    setSpeedMultiplier(1);
+    setIsFlowing(true);
+    onChangeSpacingMode('compact');
     setZoom(1);
     setPan({
       x: computeCenteredTimelinePanX(defaultWidth, viewportSize.width),
@@ -297,7 +337,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       columnPhasesRef.current[col.dayKey] = (idx * 16) % 48;
     });
     setFrameTick((t) => (t + 1) % 1000000);
-  }, [photos, spacingMode, viewportSize.width]);
+  }, [photos, onChangeSpacingMode, viewportSize.width]);
 
   // Non-passive wheel handler: horizontal scroll pans X; vertical wheel zooms in/out without moving time cards vertically
   useEffect(() => {
@@ -379,9 +419,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     });
   };
 
-  // Visible height of each vertical string below its resized time card
+  // Visible height of each vertical string below its resized time card (time cards start at top-4)
   const stringViewportHeight = useMemo(() => {
-    return Math.max(320, viewportSize.height - 160 - zoomMetrics.cardHeightPx);
+    return Math.max(320, viewportSize.height - 112 - zoomMetrics.cardHeightPx);
   }, [viewportSize.height, zoomMetrics.cardHeightPx]);
 
   if (photos.length === 0) {
@@ -409,7 +449,11 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     >
       {/* Subtle Ambient Background Grid & Glow (moves horizontally only) */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-25"
+        className={`pointer-events-none absolute inset-0 opacity-25 ${
+          !isDragging
+            ? 'transition-[background-size,background-position] duration-300 ease-out'
+            : 'transition-none'
+        }`}
         style={{
           backgroundImage:
             'radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.24) 1px, transparent 0)',
@@ -417,160 +461,211 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           backgroundPosition: `${Math.round(pan.x)}px 0px`,
         }}
       />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-slate-950/90 via-slate-950/40 to-transparent z-10" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-950/75 via-slate-950/30 to-transparent" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent z-10" />
 
-      {/* Top Overlay Row: Orientation Legend (Left) + Timeline Controls Toolbar (Right) */}
-      <div className="pointer-events-none absolute inset-x-5 top-3.5 z-20 flex flex-wrap items-center justify-between gap-2">
-        {/* Top-Left Timeline Orientation Legend */}
+      {/* Top-Right Collapsible Timeline Settings Button & Options Bar (overlaps top time cards) */}
+      <div
+        className="pointer-events-none absolute right-5 top-3.5 z-40 flex items-center justify-end"
+        data-testid="timeline-top-overlay"
+      >
         <div
           data-no-drag="true"
-          className="pointer-events-auto flex items-center gap-2.5 rounded-xl border border-slate-800/80 bg-slate-900/85 px-3 py-1.5 text-xs text-slate-300 backdrop-blur-md shadow-lg"
+          data-no-wheel-zoom="true"
+          data-testid="timeline-view-options-bar"
+          data-expanded={isSettingsHovered ? 'true' : 'false'}
+          onMouseEnter={() => {
+            setIsSettingsHovered(true);
+            hoveredDayKeyRef.current = null;
+            hoveredPhotoIdRef.current = null;
+            setHoveredDayKey(null);
+            setHoveredPhotoId(null);
+          }}
+          onMouseLeave={() => setIsSettingsHovered(false)}
+          className={`pointer-events-auto ml-auto flex items-center justify-end rounded-xl border backdrop-blur-md transition-all duration-300 ease-out ${
+            isSettingsHovered
+              ? 'gap-2 border-slate-700/90 bg-slate-900/95 p-1.5 shadow-[0_12px_36px_rgba(2,6,23,0.85)]'
+              : 'gap-0 border-slate-800/90 bg-slate-900/85 p-1 shadow-xl hover:border-sky-500/40'
+          }`}
         >
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block h-2 w-2 rounded-full bg-sky-400 shadow-[0_0_8px_#38bdf8]" />
-            <span className="font-medium text-slate-200">Timeline:</span>
-            <span className="text-slate-400">Oldest (L) → Newest (R)</span>
-          </div>
-          <span className="text-slate-700">|</span>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-            <span className="font-medium text-slate-200">Strings:</span>
-            <span className="text-slate-400">Oldest (Top) → Newest (Bottom) • ↓ Loop</span>
-          </div>
-        </div>
+          {/* Expandable Timeline Controls Panel */}
+          <div
+            data-testid="timeline-options-panel"
+            aria-hidden={!isSettingsHovered}
+            className={`flex items-center gap-2 overflow-hidden whitespace-nowrap transition-all duration-300 ease-out origin-right ${
+              isSettingsHovered
+                ? 'opacity-100 scale-100 translate-x-0 pointer-events-auto max-w-[90vw] pr-1'
+                : 'opacity-0 scale-95 translate-x-3 pointer-events-none max-w-0 pr-0'
+            }`}
+          >
+            {/* Spacing Mode Toggle: Compact vs Proportional */}
+            <div className="flex items-center rounded-lg bg-slate-950/80 p-0.5 border border-slate-800/70">
+              <button
+                type="button"
+                onClick={() => onChangeSpacingMode('compact')}
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
+                  spacingMode === 'compact'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Space active photo strings evenly"
+                data-testid="spacing-compact-btn"
+              >
+                <Columns3 className="h-3.5 w-3.5" />
+                Compact
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeSpacingMode('proportional')}
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
+                  spacingMode === 'proportional'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Scale horizontal gaps proportionally to calendar distance between strings"
+                data-testid="spacing-proportional-btn"
+              >
+                <CalendarRange className="h-3.5 w-3.5" />
+                Proportional Gaps
+              </button>
+            </div>
 
-        {/* Top-Right Timeline Controls Toolbar */}
-        <div
-          data-no-drag="true"
-          className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-xl border border-slate-800/80 bg-slate-900/85 p-1.5 backdrop-blur-md shadow-xl"
-        >
-          {/* Spacing Mode Toggle: Compact vs Proportional */}
-          <div className="flex items-center rounded-lg bg-slate-950/80 p-0.5 border border-slate-800/70">
+            <div className="h-5 w-px bg-slate-800" />
+
+            {/* Flow Play/Pause & Speed Control */}
             <button
               type="button"
-              onClick={() => onChangeSpacingMode('compact')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                spacingMode === 'compact'
-                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+              onClick={() => setIsFlowing((f) => !f)}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition border ${
+                isFlowing
+                  ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                  : 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
               }`}
-              title="Space active photo strings evenly"
-              data-testid="spacing-compact-btn"
+              data-testid="toggle-flow-btn"
             >
-              <Columns3 className="h-3.5 w-3.5" />
-              Compact
+              {isFlowing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              {isFlowing ? 'Flowing' : 'Paused'}
             </button>
-            <button
-              type="button"
-              onClick={() => onChangeSpacingMode('proportional')}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                spacingMode === 'proportional'
-                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+
+            <div className="flex items-center gap-1.5 px-2 text-xs text-slate-400" title="String downward flow speed">
+              <Gauge className="h-3.5 w-3.5 text-sky-400" />
+              <input
+                ref={speedSliderRef}
+                type="range"
+                min="0.25"
+                max="2.5"
+                step="0.25"
+                value={speedMultiplier}
+                onChange={(e) => applySpeedMultiplier(Number(e.target.value))}
+                onInput={(e) => applySpeedMultiplier(Number((e.target as HTMLInputElement).value))}
+                className="h-1.5 w-16 cursor-pointer accent-sky-400"
+                aria-label="Flow speed multiplier"
+                data-testid="timeline-speed-slider"
+              />
+              <span
+                className="min-w-[34px] text-right font-mono text-[11px] text-slate-300"
+                data-testid="timeline-speed-value"
+              >
+                {Number.isInteger(speedMultiplier * 2)
+                  ? `${speedMultiplier.toFixed(1)}x`
+                  : `${speedMultiplier.toFixed(2)}x`}
+              </span>
+            </div>
+
+            <div className="h-5 w-px bg-slate-800" />
+
+            {/* Active String Granularity Badge (Daily -> Weekly -> Monthly -> Yearly) */}
+            <span
+              className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                zoomMetrics.granularity === 'day'
+                  ? 'border-slate-700/80 bg-slate-800/70 text-slate-300'
+                  : 'border-sky-500/50 bg-sky-500/15 text-sky-300 shadow-[0_0_12px_rgba(56,189,248,0.2)]'
               }`}
-              title="Scale horizontal gaps proportionally to calendar distance between strings"
-              data-testid="spacing-proportional-btn"
+              title="Strings automatically merge from Daily to Weekly, Monthly, and Yearly when zoomed out"
+              data-testid="timeline-granularity-badge"
+              data-granularity={zoomMetrics.granularity}
             >
-              <CalendarRange className="h-3.5 w-3.5" />
-              Proportional Gaps
-            </button>
+              {GRANULARITY_LABELS[zoomMetrics.granularity]} Strings ({columns.length})
+            </span>
+
+            {/* Zoom Controls */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setZoom((z) => Math.max(MIN_TIMELINE_ZOOM, Number((z - 0.15).toFixed(2))))
+                }
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
+                title="Zoom Out"
+                data-testid="timeline-zoom-out"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <span
+                className="min-w-[46px] text-center font-mono text-xs text-slate-300"
+                data-testid="timeline-zoom-level"
+              >
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setZoom((z) => Math.min(MAX_TIMELINE_ZOOM, Number((z + 0.15).toFixed(2))))
+                }
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
+                title="Zoom In"
+                data-testid="timeline-zoom-in"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleResetView}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
+                title="Reset Timeline Settings, Zoom & Pan"
+                data-testid="timeline-reset-view"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
 
-          <div className="h-5 w-px bg-slate-800" />
-
-          {/* Flow Play/Pause & Speed Control */}
+          {/* Settings Button (displayed by default, expands options bar on hover) */}
           <button
             type="button"
-            onClick={() => setIsFlowing((f) => !f)}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition border ${
-              isFlowing
-                ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
-                : 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+            onClick={() => setIsSettingsHovered(true)}
+            onFocus={() => setIsSettingsHovered(true)}
+            aria-expanded={isSettingsHovered}
+            aria-label="Timeline settings"
+            title="Hover to expand timeline options"
+            data-testid="timeline-settings-btn"
+            className={`flex shrink-0 items-center justify-center rounded-lg py-1.5 text-xs font-medium transition-all duration-300 ${
+              isSettingsHovered
+                ? 'gap-0 border border-sky-500/40 bg-sky-500/20 px-2 text-sky-300 shadow-sm'
+                : 'gap-1.5 border border-transparent px-2.5 text-slate-300 hover:text-white'
             }`}
-            data-testid="toggle-flow-btn"
           >
-            {isFlowing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-            {isFlowing ? 'Flowing' : 'Paused'}
-          </button>
-
-          <div className="flex items-center gap-1.5 px-2 text-xs text-slate-400" title="String downward flow speed">
-            <Gauge className="h-3.5 w-3.5 text-sky-400" />
-            <input
-              type="range"
-              min="0.25"
-              max="2.5"
-              step="0.25"
-              value={speedMultiplier}
-              onChange={(e) => setSpeedMultiplier(Number(e.target.value))}
-              className="h-1.5 w-16 cursor-pointer accent-sky-400"
-              aria-label="Flow speed multiplier"
+            <SlidersHorizontal
+              className={`h-4 w-4 transition-transform duration-300 ${
+                isSettingsHovered ? 'rotate-90 text-sky-300' : 'rotate-0 text-sky-400'
+              }`}
             />
-            <span className="w-8 font-mono text-[11px] text-slate-300">{speedMultiplier.toFixed(1)}x</span>
-          </div>
-
-          <div className="h-5 w-px bg-slate-800" />
-
-          {/* Active String Granularity Badge (Daily -> Weekly -> Monthly -> Yearly) */}
-          <span
-            className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
-              zoomMetrics.granularity === 'day'
-                ? 'border-slate-700/80 bg-slate-800/70 text-slate-300'
-                : 'border-sky-500/50 bg-sky-500/15 text-sky-300 shadow-[0_0_12px_rgba(56,189,248,0.2)]'
-            }`}
-            title="Strings automatically merge from Daily to Weekly, Monthly, and Yearly when zoomed out"
-            data-testid="timeline-granularity-badge"
-            data-granularity={zoomMetrics.granularity}
-          >
-            {GRANULARITY_LABELS[zoomMetrics.granularity]} Strings ({columns.length})
-          </span>
-
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() =>
-                setZoom((z) => Math.max(MIN_TIMELINE_ZOOM, Number((z - 0.15).toFixed(2))))
-              }
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
-              title="Zoom Out"
-              data-testid="timeline-zoom-out"
-            >
-              <ZoomOut className="h-4 w-4" />
-            </button>
             <span
-              className="min-w-[46px] text-center font-mono text-xs text-slate-300"
-              data-testid="timeline-zoom-level"
+              className={`overflow-hidden whitespace-nowrap transition-all duration-300 ${
+                isSettingsHovered ? 'max-w-0 opacity-0' : 'max-w-[60px] opacity-100'
+              }`}
             >
-              {Math.round(zoom * 100)}%
+              Settings
             </span>
-            <button
-              type="button"
-              onClick={() =>
-                setZoom((z) => Math.min(MAX_TIMELINE_ZOOM, Number((z + 0.15).toFixed(2))))
-              }
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
-              title="Zoom In"
-              data-testid="timeline-zoom-in"
-            >
-              <ZoomIn className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleResetView}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition"
-              title="Reset Zoom & Pan"
-              data-testid="timeline-reset-view"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          </button>
         </div>
       </div>
 
-      {/* Horizontal-Only Panned Canvas (pan.y is locked at 0; time cards stay at top and resize) */}
+      {/* Horizontal-Only Panned Canvas (pan.y is locked at 0; time cards stay near top and allow floating settings bar to overlap) */}
       <div
-        className="absolute left-0 top-16 origin-top-left will-change-transform"
+        className={`absolute left-0 top-4 z-10 origin-top-left will-change-transform ${
+          !isDragging ? 'transition-transform duration-300 ease-out' : 'transition-none'
+        }`}
         style={{
           transform: `translate3d(${pan.x}px, 0px, 0)`,
         }}
@@ -583,7 +678,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
         {/* Horizontal Timeline Axis Beam connecting all Time Cards */}
         {columns.length > 0 && (
           <div
-            className="pointer-events-none absolute h-[2px] bg-gradient-to-r from-sky-500/30 via-sky-400/70 to-indigo-500/40"
+            className="pointer-events-none absolute h-[2px] bg-gradient-to-r from-sky-500/30 via-sky-400/70 to-indigo-500/40 transition-all duration-300 ease-out"
             style={{
               top: Math.round(zoomMetrics.cardHeightPx * 0.5),
               left: 0,
@@ -594,7 +689,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
         {/* Timeline Columns ("Vertical Strings") */}
         <div
-          className="relative"
+          className="relative transition-[width,height] duration-300 ease-out"
           style={{
             width: totalTimelineWidth,
             height: stringViewportHeight + zoomMetrics.cardHeightPx + 36,
@@ -609,6 +704,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             );
             const activeEndDirection =
               hoveredStringEnd?.dayKey === col.dayKey ? hoveredStringEnd.direction : null;
+            const effectiveSpeed = Number((col.speedPxPerSec * speedMultiplier).toFixed(1));
             const activeVelocity = computeStringFlowVelocity(col.speedPxPerSec, speedMultiplier, {
               isFlowing,
               isColumnHovered: hoveredDayKey === col.dayKey,
@@ -642,7 +738,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 {/* Proportional Time Gap Badge between columns */}
                 {prevCol && col.gapLabel && gapWidth >= 44 && (
                   <div
-                    className="pointer-events-none absolute flex items-center justify-center"
+                    className="pointer-events-none absolute flex items-center justify-center transition-all duration-300 ease-out"
                     style={{
                       top: Math.max(4, Math.round(zoomMetrics.cardHeightPx * 0.5 - 11)),
                       left: prevCol.xOffsetPx + zoomMetrics.columnWidthPx,
@@ -656,7 +752,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 )}
 
                 <div
-                  className="absolute top-0 flex flex-col items-center"
+                  className="absolute top-0 flex flex-col items-center transition-[left,width] duration-300 ease-out"
                   style={{
                     left: col.xOffsetPx,
                     width: zoomMetrics.columnWidthPx,
@@ -671,94 +767,132 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                   data-day-key={col.dayKey}
                   data-granularity={zoomMetrics.granularity}
                   data-card-slot-height={zoomMetrics.cardSlotHeightPx}
-                  data-speed={col.speedPxPerSec}
+                  data-speed={effectiveSpeed}
+                  data-base-speed={col.speedPxPerSec}
                   data-flow-mode={flowMode}
                   data-flow-velocity={Number(activeVelocity.toFixed(2))}
                   data-phase={Number(phaseOffset.toFixed(2))}
                 >
-                  {/* Column Time Card on top of the string (resizes in place without moving vertically) */}
+                  {/* Column Time Card on top of the string (resizes natively in place without blurry transform: scale) */}
                   <div
                     data-no-drag="true"
                     data-testid={`timeline-time-card-${col.dayKey}`}
                     data-card-width={zoomMetrics.columnWidthPx}
                     data-card-height={zoomMetrics.cardHeightPx}
-                    className="relative z-10 shrink-0 overflow-hidden"
+                    data-card-scale={zoomMetrics.cardScale}
                     style={{
                       width: zoomMetrics.columnWidthPx,
                       height: zoomMetrics.cardHeightPx,
+                      borderRadius: `${Math.round(12 * zoomMetrics.cardScale)}px`,
+                      padding: `${Math.round(8 * zoomMetrics.cardScale)}px ${Math.round(12 * zoomMetrics.cardScale)}px`,
                     }}
+                    className={`group relative z-10 flex shrink-0 items-center justify-between overflow-hidden border backdrop-blur-md transition-all duration-300 ease-out ${
+                      allSelectedInDay
+                        ? 'border-sky-400/80 bg-sky-950/80 shadow-[0_0_20px_rgba(56,189,248,0.25)]'
+                        : someSelectedInDay
+                          ? 'border-sky-500/50 bg-slate-900/90'
+                          : 'border-slate-800/90 bg-slate-900/85 hover:border-slate-700'
+                    }`}
                   >
                     <div
-                      style={{
-                        width: COLUMN_WIDTH,
-                        height: BASE_TIME_CARD_HEIGHT_PX,
-                        transform: `scale(${zoomMetrics.cardScale})`,
-                        transformOrigin: 'top left',
-                      }}
-                      className={`group flex items-center justify-between rounded-xl border px-3 py-2 backdrop-blur-md transition-colors ${
-                        allSelectedInDay
-                          ? 'border-sky-400/80 bg-sky-950/80 shadow-[0_0_20px_rgba(56,189,248,0.25)]'
-                          : someSelectedInDay
-                            ? 'border-sky-500/50 bg-slate-900/90'
-                            : 'border-slate-800/90 bg-slate-900/85 hover:border-slate-700'
-                      }`}
+                      className="min-w-0 transition-all duration-300 ease-out"
+                      style={{ paddingRight: `${Math.round(6 * zoomMetrics.cardScale)}px` }}
                     >
-                      <div className="min-w-0 pr-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-xs font-semibold tracking-tight text-slate-100">
-                            {col.displayDate}
-                          </span>
-                          <span className="shrink-0 rounded-md bg-slate-800/90 px-1.5 py-0.5 font-mono text-[10px] font-medium text-sky-300">
-                            {col.photos.length}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-400">
-                          <span className="truncate">{col.weekday}</span>
-                          <span>•</span>
-                          <span
-                            className={`shrink-0 font-mono ${
-                              activeEndDirection === 'backward'
-                                ? 'text-amber-300 font-semibold'
-                                : activeEndDirection === 'forward'
-                                  ? 'text-sky-300 font-semibold'
-                                  : 'text-slate-500'
-                            }`}
-                            title="String flow speed"
-                          >
-                            {activeEndDirection === 'backward'
-                              ? `↑↑ ${Math.abs(Math.round(activeVelocity))}px/s`
-                              : activeEndDirection === 'forward'
-                                ? `↓↓ ${Math.abs(Math.round(activeVelocity))}px/s`
-                                : `↓ ${col.speedPxPerSec}px/s`}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Select entire string bucket button */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectGroup(
-                            col.photos.map((p) => p.id),
-                            !allSelectedInDay
-                          );
-                        }}
-                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition ${
-                          allSelectedInDay
-                            ? 'border-sky-400 bg-sky-500 text-slate-950'
-                            : 'border-slate-700 bg-slate-800/70 text-slate-400 hover:border-sky-400/60 hover:text-sky-300'
-                        }`}
-                        title={
-                          allSelectedInDay
-                            ? 'Deselect all photos in this string'
-                            : 'Select all photos in this string'
-                        }
-                        data-testid={`select-day-${col.dayKey}`}
+                      <div
+                        className="flex items-center transition-all duration-300 ease-out"
+                        style={{ gap: `${Math.round(6 * zoomMetrics.cardScale)}px` }}
                       >
-                        <Check className="h-3.5 w-3.5" />
-                      </button>
+                        <span
+                          className="truncate font-semibold tracking-tight text-slate-100 transition-all duration-300 ease-out"
+                          style={{
+                            fontSize: `${Number((12 * zoomMetrics.cardScale).toFixed(2))}px`,
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {col.displayDate}
+                        </span>
+                        <span
+                          className="shrink-0 bg-slate-800/90 font-mono font-medium text-sky-300 transition-all duration-300 ease-out"
+                          style={{
+                            fontSize: `${Number((10 * zoomMetrics.cardScale).toFixed(2))}px`,
+                            lineHeight: 1.2,
+                            padding: `${Math.round(2 * zoomMetrics.cardScale)}px ${Math.round(6 * zoomMetrics.cardScale)}px`,
+                            borderRadius: `${Math.round(6 * zoomMetrics.cardScale)}px`,
+                          }}
+                        >
+                          {col.photos.length}
+                        </span>
+                      </div>
+                      <div
+                        className="flex items-center text-slate-400 transition-all duration-300 ease-out"
+                        style={{
+                          marginTop: `${Math.round(2 * zoomMetrics.cardScale)}px`,
+                          gap: `${Math.round(6 * zoomMetrics.cardScale)}px`,
+                          fontSize: `${Number((10 * zoomMetrics.cardScale).toFixed(2))}px`,
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        <span className="truncate">{col.weekday}</span>
+                        <span>•</span>
+                        <span
+                          className={`shrink-0 font-mono ${
+                            activeEndDirection === 'backward'
+                              ? 'text-amber-300 font-semibold'
+                              : activeEndDirection === 'forward'
+                                ? 'text-sky-300 font-semibold'
+                                : !isFlowing
+                                  ? 'text-amber-400/80'
+                                  : 'text-slate-500'
+                          }`}
+                          title="String flow speed"
+                          data-testid={`timeline-speed-label-${col.dayKey}`}
+                        >
+                          {activeEndDirection === 'backward'
+                            ? `↑↑ ${Math.abs(Math.round(activeVelocity))}px/s`
+                            : activeEndDirection === 'forward'
+                              ? `↓↓ ${Math.abs(Math.round(activeVelocity))}px/s`
+                              : !isFlowing
+                                ? '⏸ 0px/s'
+                                : `↓ ${effectiveSpeed}px/s`}
+                        </span>
+                      </div>
                     </div>
+
+                    {/* Select entire string bucket button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectGroup(
+                          col.photos.map((p) => p.id),
+                          !allSelectedInDay
+                        );
+                      }}
+                      style={{
+                        width: `${Math.round(24 * zoomMetrics.cardScale)}px`,
+                        height: `${Math.round(24 * zoomMetrics.cardScale)}px`,
+                        borderRadius: `${Math.round(8 * zoomMetrics.cardScale)}px`,
+                      }}
+                      className={`flex shrink-0 items-center justify-center border transition-all duration-300 ease-out ${
+                        allSelectedInDay
+                          ? 'border-sky-400 bg-sky-500 text-slate-950'
+                          : 'border-slate-700 bg-slate-800/70 text-slate-400 hover:border-sky-400/60 hover:text-sky-300'
+                      }`}
+                      title={
+                        allSelectedInDay
+                          ? 'Deselect all photos in this string'
+                          : 'Select all photos in this string'
+                      }
+                      data-testid={`select-day-${col.dayKey}`}
+                    >
+                      <Check
+                        className="transition-all duration-300 ease-out"
+                        style={{
+                          width: `${Number((14 * zoomMetrics.cardScale).toFixed(2))}px`,
+                          height: `${Number((14 * zoomMetrics.cardScale).toFixed(2))}px`,
+                        }}
+                      />
+                    </button>
                   </div>
 
                   {/* Top String Anchor Node (hover to fast-backward / rewind string upwards) */}
@@ -780,7 +914,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
                   {/* Vertical Flowing String Viewport with Smooth Top & Bottom Gradient Mask */}
                   <div
-                    className="relative w-full overflow-hidden"
+                    className="relative w-full overflow-hidden transition-[height] duration-300 ease-out"
                     style={{
                       height: stringViewportHeight,
                       WebkitMaskImage:
@@ -904,7 +1038,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                               onOpenPhoto(photo);
                             }
                           }}
-                          className="group/card absolute left-2 right-2 cursor-pointer will-change-transform"
+                          className="group/card absolute left-2 right-2 cursor-pointer will-change-transform transition-[height] duration-300 ease-out"
                           style={{
                             height: Math.max(88, zoomMetrics.cardSlotHeightPx - 16),
                             transform: `translate3d(0, ${state.y}px, 0) scale(${state.scale})`,

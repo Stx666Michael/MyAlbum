@@ -293,102 +293,106 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        {/* Center: Primary View Mode Switcher (Timeline vs Location Globe) */}
+        {/* Right: Primary View Mode Switcher (Timeline vs Location Globe) & Selection / Batch Edit Actions */}
         <div
-          className="flex items-center rounded-2xl border border-slate-800 bg-slate-900/90 p-1 shadow-inner"
-          data-testid="view-mode-switcher"
+          className="ml-auto flex items-center justify-end gap-3"
+          data-testid="header-view-options-bar"
         >
-          <button
-            type="button"
-            onClick={() => setActiveView('timeline')}
-            className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition-all ${
-              activeView === 'timeline'
-                ? 'bg-sky-500 text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.4)]'
-                : 'text-slate-400 hover:text-slate-100'
-            }`}
-            data-testid="switch-to-timeline-btn"
+          <div
+            className="flex items-center justify-end rounded-2xl border border-slate-800 bg-slate-900/90 p-1 shadow-inner"
+            data-testid="view-mode-switcher"
           >
-            <Clock className="h-3.5 w-3.5" />
-            1. Timeline Strings
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('timeline')}
+              className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition-all ${
+                activeView === 'timeline'
+                  ? 'bg-sky-500 text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.4)]'
+                  : 'text-slate-400 hover:text-slate-100'
+              }`}
+              data-testid="switch-to-timeline-btn"
+            >
+              <Clock className="h-3.5 w-3.5" />
+              1. Timeline Strings
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveView('location')}
-            className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition-all ${
-              activeView === 'location'
-                ? 'bg-sky-500 text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.4)]'
-                : 'text-slate-400 hover:text-slate-100'
-            }`}
-            data-testid="switch-to-location-btn"
-          >
-            <Globe className="h-3.5 w-3.5" />
-            2. Location Globe
-            {scanData && (
-              <span
-                className={`rounded-full px-1.5 py-0.2 font-mono text-[10px] ${
-                  activeView === 'location'
-                    ? 'bg-slate-950/25 text-slate-950'
-                    : 'bg-slate-800 text-sky-300'
-                }`}
-              >
-                {filteredLocatedCount}
+            <button
+              type="button"
+              onClick={() => setActiveView('location')}
+              className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition-all ${
+                activeView === 'location'
+                  ? 'bg-sky-500 text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.4)]'
+                  : 'text-slate-400 hover:text-slate-100'
+              }`}
+              data-testid="switch-to-location-btn"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              2. Location Globe
+              {scanData && (
+                <span
+                  className={`rounded-full px-1.5 py-0.2 font-mono text-[10px] ${
+                    activeView === 'location'
+                      ? 'bg-slate-950/25 text-slate-950'
+                      : 'bg-slate-800 text-sky-300'
+                  }`}
+                >
+                  {filteredLocatedCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleSelectAllVisible}
+              className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-700 hover:text-white transition"
+              data-testid="select-all-visible-btn"
+            >
+              {filteredPhotos.length > 0 && filteredPhotos.every((p) => selectedIds.has(p.id)) ? (
+                <CheckSquare className="h-3.5 w-3.5 text-sky-400" />
+              ) : (
+                <Square className="h-3.5 w-3.5 text-slate-400" />
+              )}
+              <span>
+                {selectedIds.size > 0 ? `${selectedIds.size} Selected` : 'Select All'}
               </span>
+            </button>
+
+            {selectedIds.size > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setBatchModalState({ isOpen: true, tab: 'time' })}
+                  className="flex items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/25 transition"
+                  data-testid="open-batch-time-btn"
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  Batch Time
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBatchModalState({ isOpen: true, tab: 'location' })}
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition"
+                  data-testid="open-batch-location-btn"
+                >
+                  <MapPin className="h-3.5 w-3.5" />
+                  Batch Location
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="rounded-xl border border-slate-800 bg-slate-900 p-1.5 text-slate-400 hover:text-white transition"
+                  title="Clear selection"
+                  data-testid="clear-selection-btn"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </>
             )}
-          </button>
-        </div>
-
-        {/* Right: Selection & Batch Edit Actions */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleSelectAllVisible}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-700 hover:text-white transition"
-            data-testid="select-all-visible-btn"
-          >
-            {filteredPhotos.length > 0 && filteredPhotos.every((p) => selectedIds.has(p.id)) ? (
-              <CheckSquare className="h-3.5 w-3.5 text-sky-400" />
-            ) : (
-              <Square className="h-3.5 w-3.5 text-slate-400" />
-            )}
-            <span>
-              {selectedIds.size > 0 ? `${selectedIds.size} Selected` : 'Select All'}
-            </span>
-          </button>
-
-          {selectedIds.size > 0 && (
-            <>
-              <button
-                type="button"
-                onClick={() => setBatchModalState({ isOpen: true, tab: 'time' })}
-                className="flex items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/25 transition"
-                data-testid="open-batch-time-btn"
-              >
-                <Clock className="h-3.5 w-3.5" />
-                Batch Time
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setBatchModalState({ isOpen: true, tab: 'location' })}
-                className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/25 transition"
-                data-testid="open-batch-location-btn"
-              >
-                <MapPin className="h-3.5 w-3.5" />
-                Batch Location
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedIds(new Set())}
-                className="rounded-xl border border-slate-800 bg-slate-900 p-1.5 text-slate-400 hover:text-white transition"
-                title="Clear selection"
-                data-testid="clear-selection-btn"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </>
-          )}
+          </div>
         </div>
       </header>
 

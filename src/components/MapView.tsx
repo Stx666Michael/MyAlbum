@@ -590,7 +590,8 @@ export const MapView: React.FC<MapViewProps> = ({
       {/* Top-Right Map Style, Globe Reset, and Batch Location Controls */}
       <div
         data-map-ui="true"
-        className="absolute right-5 top-4 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-slate-800/80 bg-slate-900/85 p-1.5 backdrop-blur-md shadow-xl"
+        data-testid="location-view-options-bar"
+        className="absolute right-5 top-4 z-20 ml-auto flex flex-wrap items-center justify-end gap-2 rounded-xl border border-slate-800/80 bg-slate-900/85 p-1.5 backdrop-blur-md shadow-xl"
       >
         {/* Batch Pick Location on Map Trigger */}
         <button

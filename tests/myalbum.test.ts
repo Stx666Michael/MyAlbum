@@ -259,7 +259,7 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
     expect(restoredP1.isEdited).toBe(false);
   });
 
-  it('computes timeline columns (oldest left -> newest right, morning top -> night bottom), spacing modes, and downward infinite loop transitions', async () => {
+  it('computes timeline columns (oldest left -> newest right, newest top -> oldest bottom), spacing modes, and downward infinite loop transitions', async () => {
     const demoRes = await request(app).post('/api/demo').send({});
     const photos = demoRes.body.photos;
 
@@ -281,16 +281,26 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
     expect(oneDayGap).toBe(256);
     expect(multiMonthGap).toBeGreaterThan(oneDayGap + 300);
 
-    // Verify within each day column, photos are sorted oldest (top) to newest (bottom)
+      // Verify within each day column, photos are sorted newest (top, index 0) to oldest (bottom, index N-1)
     for (const col of compactCols) {
       for (let j = 1; j < col.photos.length; j++) {
         const prevMs = new Date(col.photos[j - 1].timestamp).getTime();
         const currMs = new Date(col.photos[j].timestamp).getTime();
-        expect(currMs).toBeGreaterThanOrEqual(prevMs);
+        expect(currMs).toBeLessThanOrEqual(prevMs);
       }
     }
 
-    // Verify downward flow, initial top-to-bottom chronological placement (#1 at top), and smooth entry/exit transitions
+    // Verify deterministic tie-breaking when two photos share the exact same timestamp
+    const tiePhotos = [
+      { id: 't1', timestamp: '2025-06-01T12:00:00.000Z', fileName: 'alpha.jpg' },
+      { id: 't2', timestamp: '2025-06-01T12:00:00.000Z', fileName: 'zeta.jpg' },
+      { id: 't3', timestamp: '2025-06-01T15:30:00.000Z', fileName: 'mid.jpg' },
+    ] as any[];
+    const tieCols = buildTimelineDayColumns(tiePhotos, 'compact', 256);
+    expect(tieCols.length).toBe(1);
+    expect(tieCols[0].photos.map((p) => p.id)).toEqual(['t3', 't2', 't1']);
+
+    // Verify downward flow, initial top-to-bottom placement (#1 newest at top), and smooth entry/exit transitions
     const col0 = compactCols[0];
     const { items } = buildVirtualStringItems(col0.photos, 640, 192);
     const firstCardAt0 = computeFlowingCardState(0, items.length, 0, 640, 192);
@@ -470,7 +480,7 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
     expect(monthCols.length).toBe(3);
     expect(yearCols.length).toBe(2);
 
-    // Total photos across columns is always preserved and sorted oldest -> newest inside every merged bucket
+    // Total photos across columns is always preserved and sorted newest (top) -> oldest (bottom) inside every merged bucket
     for (const cols of [dayCols, weekCols, monthCols, yearCols]) {
       const total = cols.reduce((acc, c) => acc + c.photos.length, 0);
       expect(total).toBe(samplePhotos.length);
@@ -482,7 +492,7 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
         for (let j = 1; j < col.photos.length; j++) {
           const prevMs = new Date(col.photos[j - 1].timestamp).getTime();
           const currMs = new Date(col.photos[j].timestamp).getTime();
-          expect(currMs).toBeGreaterThanOrEqual(prevMs);
+          expect(currMs).toBeLessThanOrEqual(prevMs);
         }
       }
     }
@@ -498,6 +508,7 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
     expect(propYearCols[1].unitGapSincePrev).toBe(1);
 
     // 3. Verify ISO week-year boundary merging (Dec 30 & Dec 31, 2024 fall in ISO Week 1 of 2025 alongside Jan 1, 2025)
+    // Ordered newest (top, b3) -> oldest (bottom, b1)
     const boundaryPhotos = [
       { id: 'b1', timestamp: '2024-12-30T10:00:00.000Z', fileName: 'b1.jpg' },
       { id: 'b2', timestamp: '2024-12-31T22:00:00.000Z', fileName: 'b2.jpg' },
@@ -507,10 +518,10 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
     expect(boundaryWeeks.length).toBe(1);
     expect(boundaryWeeks[0].dayKey).toBe('2025-W01');
     expect(boundaryWeeks[0].displayDate).toBe('Dec 30, 2024 – Jan 5, 2025');
-    expect(boundaryWeeks[0].photos.map((p) => p.id)).toEqual(['b1', 'b2', 'b3']);
+    expect(boundaryWeeks[0].photos.map((p) => p.id)).toEqual(['b3', 'b2', 'b1']);
   });
 
-  it('enforces horizontal-only panning, keeps time cards pinned at the top while resizing on zoom, and merges strings in TimelineView DOM', async () => {
+  it('enforces horizontal-only panning, keeps time cards pinned at the top while resizing natively on zoom without blurry scale transform, right-aligns view options, and merges strings in TimelineView DOM', async () => {
     const demoRes = await request(app).post('/api/demo').send({});
     const photos = demoRes.body.photos;
 
@@ -545,25 +556,32 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
       unobserve() {}
       disconnect() {}
     };
-    (globalThis as any).requestAnimationFrame = () => 1;
+    let latestRafCallback: ((now: number) => void) | null = null;
+    (globalThis as any).requestAnimationFrame = (cb: (now: number) => void) => {
+      latestRafCallback = cb;
+      return 1;
+    };
     (globalThis as any).cancelAnimationFrame = () => {};
 
     const container = dom.window.document.getElementById('root')!;
     const root = createRoot(container);
 
+    const StatefulTimelineWrapper: React.FC = () => {
+      const [mode, setMode] = React.useState<'compact' | 'proportional'>('compact');
+      return React.createElement(TimelineView, {
+        photos,
+        selectedIds: new Set<string>(),
+        onToggleSelect: () => {},
+        onSelectGroup: () => {},
+        onOpenPhoto: () => {},
+        spacingMode: mode,
+        onChangeSpacingMode: setMode,
+      });
+    };
+
     try {
       await act(async () => {
-        root.render(
-          React.createElement(TimelineView, {
-            photos,
-            selectedIds: new Set<string>(),
-            onToggleSelect: () => {},
-            onSelectGroup: () => {},
-            onOpenPhoto: () => {},
-            spacingMode: 'compact',
-            onChangeSpacingMode: () => {},
-          })
-        );
+        root.render(React.createElement(StatefulTimelineWrapper));
       });
 
       const canvas = container.querySelector('[data-testid="timeline-canvas"]') as HTMLElement;
@@ -572,6 +590,70 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
       ) as HTMLElement;
       expect(canvas).toBeTruthy();
       expect(transformLayer).toBeTruthy();
+
+      // Verify orientation direction legend is removed and view options bar is right-aligned, collapsed by default, and overlaps top time cards
+      expect(canvas.textContent).not.toContain('Oldest (L)');
+      expect(canvas.textContent).not.toContain('Strings:');
+      const topOverlay = container.querySelector('[data-testid="timeline-top-overlay"]') as HTMLElement;
+      const optionsBar = container.querySelector('[data-testid="timeline-view-options-bar"]') as HTMLElement;
+      const optionsPanel = container.querySelector('[data-testid="timeline-options-panel"]') as HTMLElement;
+      const settingsBtn = container.querySelector('[data-testid="timeline-settings-btn"]') as HTMLElement;
+      expect(topOverlay).toBeTruthy();
+      expect(topOverlay.className).toContain('justify-end');
+      expect(topOverlay.className).toContain('z-40');
+      expect(optionsBar).toBeTruthy();
+      expect(optionsBar.className).toContain('justify-end');
+      expect(optionsBar.className).toContain('ml-auto');
+      expect(optionsPanel).toBeTruthy();
+      expect(settingsBtn).toBeTruthy();
+
+      // Collapsed by default: settings button is shown, options panel is collapsed (max-w-0 opacity-0)
+      expect(optionsBar.getAttribute('data-expanded')).toBe('false');
+      expect(settingsBtn.getAttribute('aria-expanded')).toBe('false');
+      expect(settingsBtn.className).toContain('gap-1.5');
+      expect(optionsPanel.className).toContain('transition-all');
+      expect(optionsPanel.className).toContain('duration-300');
+      expect(optionsPanel.className).toContain('ease-out');
+      expect(optionsPanel.className).toContain('max-w-0');
+      expect(optionsPanel.className).toContain('opacity-0');
+      expect(optionsPanel.className).toContain('scale-95');
+      expect(optionsPanel.className).toContain('translate-x-3');
+      expect(optionsPanel.className).toContain('pointer-events-none');
+
+      // Hovering settings button / options bar expands the options bar with natural transitions
+      await act(async () => {
+        settingsBtn.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+      });
+      expect(optionsBar.getAttribute('data-expanded')).toBe('true');
+      expect(settingsBtn.getAttribute('aria-expanded')).toBe('true');
+      expect(settingsBtn.className).toContain('gap-0');
+      expect(optionsPanel.className).toContain('opacity-100');
+      expect(optionsPanel.className).toContain('scale-100');
+      expect(optionsPanel.className).toContain('translate-x-0');
+      expect(optionsPanel.className).toContain('max-w-[90vw]');
+      expect(optionsPanel.className).toContain('pointer-events-auto');
+
+      // Clicking the settings button after hovering it (or tapping on hybrid devices) must keep the bar expanded
+      await act(async () => {
+        settingsBtn.click();
+      });
+      expect(optionsBar.getAttribute('data-expanded')).toBe('true');
+      expect(settingsBtn.getAttribute('aria-expanded')).toBe('true');
+
+      // Unhovering the options bar collapses it back with transitions
+      await act(async () => {
+        optionsBar.dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true }));
+      });
+      expect(optionsBar.getAttribute('data-expanded')).toBe('false');
+      expect(settingsBtn.getAttribute('aria-expanded')).toBe('false');
+      expect(settingsBtn.className).toContain('gap-1.5');
+      expect(optionsPanel.className).toContain('max-w-0');
+      expect(optionsPanel.className).toContain('opacity-0');
+
+      // Verify transform layer sits near the top (top-4, z-10) so top time cards (z-10) overlap cleanly beneath floating settings bar (top-3.5, z-40)
+      expect(topOverlay.className).toContain('top-3.5');
+      expect(transformLayer.className).toContain('top-4');
+      expect(transformLayer.className).toContain('z-10');
 
       // 1. Initial state at 100% zoom: Daily strings (9 columns), pan.y = 0, centered pan.x, time card size = 216x56
       expect(canvas.getAttribute('data-granularity')).toBe('day');
@@ -590,11 +672,90 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
       const firstTimeCard = container.querySelector(
         '[data-testid^="timeline-time-card-"]'
       ) as HTMLElement;
+      const firstDayCol = container.querySelector(
+        '[data-testid^="timeline-day-column-"]'
+      ) as HTMLElement;
+      const firstStringViewport = container.querySelector(
+        '[data-testid^="timeline-string-viewport-"]'
+      ) as HTMLElement;
+      const firstPhotoCard = container.querySelector(
+        '[data-testid^="timeline-photo-card-"]'
+      ) as HTMLElement;
       expect(firstTimeCard).toBeTruthy();
+      expect(firstDayCol).toBeTruthy();
+      expect(firstStringViewport).toBeTruthy();
+      expect(firstPhotoCard).toBeTruthy();
       expect(Number(firstTimeCard.getAttribute('data-card-width'))).toBe(BASE_TIME_CARD_WIDTH_PX);
       expect(Number(firstTimeCard.getAttribute('data-card-height'))).toBe(BASE_TIME_CARD_HEIGHT_PX);
+      expect(firstTimeCard.style.transform).toBe('');
+      expect(firstTimeCard.innerHTML).not.toContain('scale(');
+
+      // Verify smooth zoom/pan transition classes when not dragging
+      expect(transformLayer.className).toContain('transition-transform');
+      expect(transformLayer.className).toContain('duration-300');
+      expect(transformLayer.className).toContain('ease-out');
+      expect(firstDayCol.className).toContain('transition-[left,width]');
+      expect(firstDayCol.className).toContain('duration-300');
+      expect(firstDayCol.className).toContain('ease-out');
+      expect(firstTimeCard.className).toContain('transition-all');
+      expect(firstTimeCard.className).toContain('duration-300');
+      expect(firstTimeCard.className).toContain('ease-out');
+      expect(firstStringViewport.className).toContain('duration-300');
+      expect(firstStringViewport.className).toContain('ease-out');
+      expect(firstPhotoCard.className).toContain('transition-[height]');
+      expect(firstPhotoCard.className).toContain('duration-300');
+      expect(firstPhotoCard.className).toContain('ease-out');
+
+      // Verify zooming in (e.g. 100% -> 130%) scales the time card natively via layout width/height/fontSize without CSS transform: scale(...)
+      const zoomInBtn = container.querySelector('[data-testid="timeline-zoom-in"]') as HTMLElement;
+      await act(async () => {
+        zoomInBtn.click(); // 1.15
+        zoomInBtn.click(); // 1.30
+      });
+      const zoomedInTimeCard = container.querySelector(
+        '[data-testid^="timeline-time-card-"]'
+      ) as HTMLElement;
+      const zoomedInDayCol = container.querySelector(
+        '[data-testid^="timeline-day-column-"]'
+      ) as HTMLElement;
+      const widthAt130 = Number(zoomedInTimeCard.getAttribute('data-card-width'));
+      const heightAt130 = Number(zoomedInTimeCard.getAttribute('data-card-height'));
+      expect(widthAt130).toBeGreaterThan(BASE_TIME_CARD_WIDTH_PX);
+      expect(heightAt130).toBeGreaterThan(BASE_TIME_CARD_HEIGHT_PX);
+      expect(zoomedInTimeCard.style.width).toBe(`${widthAt130}px`);
+      expect(zoomedInTimeCard.style.height).toBe(`${heightAt130}px`);
+      expect(zoomedInTimeCard.style.transform).toBe('');
+      expect(zoomedInTimeCard.innerHTML).not.toContain('scale(');
+      expect(zoomedInDayCol.className).toContain('duration-300');
+      expect(zoomedInDayCol.className).toContain('ease-out');
+      expect(zoomedInTimeCard.className).toContain('duration-300');
+      expect(zoomedInTimeCard.className).toContain('ease-out');
+
+      // Verify zooming all the way to MAX_TIMELINE_ZOOM (225%) keeps native layout dimensions (486x126) with no scale(...)
+      await act(async () => {
+        for (let step = 0; step < 10; step++) {
+          zoomInBtn.click();
+        }
+      });
+      const maxZoomTimeCard = container.querySelector(
+        '[data-testid^="timeline-time-card-"]'
+      ) as HTMLElement;
+      const metricsMax = getTimelineZoomMetrics(MAX_TIMELINE_ZOOM);
+      expect(Number(maxZoomTimeCard.getAttribute('data-card-width'))).toBe(metricsMax.columnWidthPx);
+      expect(Number(maxZoomTimeCard.getAttribute('data-card-height'))).toBe(metricsMax.cardHeightPx);
+      expect(maxZoomTimeCard.style.width).toBe(`${metricsMax.columnWidthPx}px`);
+      expect(maxZoomTimeCard.style.height).toBe(`${metricsMax.cardHeightPx}px`);
+      expect(maxZoomTimeCard.style.transform).toBe('');
+      expect(maxZoomTimeCard.innerHTML).not.toContain('scale(');
+
+      // Reset back to 100% zoom before testing drag and zoom-out
+      const resetViewBtnInitial = container.querySelector('[data-testid="timeline-reset-view"]') as HTMLElement;
+      await act(async () => {
+        resetViewBtnInitial.click();
+      });
 
       // 2. Pointer dragging with large vertical delta (+320px Y and -150px X) ONLY moves horizontally; pan.y stays 0
+      // During active drag, transform transition is disabled ('transition-none') for instant 1:1 tracking
       const panXBeforeDrag = Number(transformLayer.getAttribute('data-pan-x'));
       await act(async () => {
         canvas.dispatchEvent(
@@ -606,6 +767,8 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
           })
         );
       });
+      expect(transformLayer.className).toContain('transition-none');
+      expect(transformLayer.className).not.toContain('transition-transform');
       await act(async () => {
         canvas.dispatchEvent(
           new dom.window.MouseEvent('pointermove', {
@@ -624,6 +787,9 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
           })
         );
       });
+      expect(transformLayer.className).toContain('transition-transform');
+      expect(transformLayer.className).toContain('duration-300');
+      expect(transformLayer.className).toContain('ease-out');
 
       const panXAfterDrag = Number(transformLayer.getAttribute('data-pan-x'));
       expect(panXAfterDrag).toBeLessThan(panXBeforeDrag);
@@ -645,11 +811,17 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
       const heightAt85 = Number(resizedTimeCard.getAttribute('data-card-height'));
       expect(widthAt85).toBeLessThan(BASE_TIME_CARD_WIDTH_PX);
       expect(heightAt85).toBeLessThan(BASE_TIME_CARD_HEIGHT_PX);
+      expect(resizedTimeCard.style.transform).toBe('');
+      expect(resizedTimeCard.innerHTML).not.toContain('scale(');
+      expect(resizedTimeCard.className).toContain('duration-300');
+      expect(resizedTimeCard.className).toContain('ease-out');
       // Column remains anchored at top: 0 and scales card slot height proportionally
       const firstColEl = container.querySelector(
         '[data-testid^="timeline-day-column-"]'
       ) as HTMLElement;
       expect(firstColEl.className).toContain('top-0');
+      expect(firstColEl.className).toContain('duration-300');
+      expect(firstColEl.className).toContain('ease-out');
       expect(Number(firstColEl.getAttribute('data-card-slot-height'))).toBeLessThan(192);
 
       // 4. Zooming out further triggers automatic merging: Daily (9) -> Weekly (7) -> Monthly (7) -> Yearly (2)
@@ -762,7 +934,100 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
         resetBtn.click();
       });
 
-      // 8. Wheel events (both vertical wheel zoom and horizontal trackpad scroll) never shift pan.y from 0
+      // 8. Speed slider, flow pause toggle, and reset button update string flow speed & settings in real time
+      const speedSlider = container.querySelector(
+        '[data-testid="timeline-speed-slider"]'
+      ) as HTMLInputElement;
+      const speedValue = container.querySelector(
+        '[data-testid="timeline-speed-value"]'
+      ) as HTMLElement;
+      const toggleFlowBtn = container.querySelector(
+        '[data-testid="toggle-flow-btn"]'
+      ) as HTMLElement;
+      const propSpacingBtn = container.querySelector(
+        '[data-testid="spacing-proportional-btn"]'
+      ) as HTMLElement;
+      const colAfterReset = container.querySelector(
+        '[data-testid="timeline-day-column-2025-03-14"]'
+      ) as HTMLElement;
+      const speedLabel = container.querySelector(
+        '[data-testid="timeline-speed-label-2025-03-14"]'
+      ) as HTMLElement;
+
+      expect(speedSlider).toBeTruthy();
+      expect(speedValue).toBeTruthy();
+      expect(toggleFlowBtn).toBeTruthy();
+      expect(colAfterReset).toBeTruthy();
+      expect(speedLabel).toBeTruthy();
+      expect(speedSlider.value).toBe('1');
+      expect(speedValue.textContent).toBe('1.0x');
+      expect(Number(colAfterReset.getAttribute('data-base-speed'))).toBe(baseSpeed);
+      expect(Number(colAfterReset.getAttribute('data-speed'))).toBe(baseSpeed);
+      expect(Number(colAfterReset.getAttribute('data-flow-velocity'))).toBe(baseSpeed);
+      expect(speedLabel.textContent).toBe(`↓ ${baseSpeed}px/s`);
+
+      // Change speed slider to 1.25x (quarter-step formatting) and then 2x
+      await act(async () => {
+        speedSlider.value = '1.25';
+        speedSlider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      });
+      const expectedSpeed125 = Number((baseSpeed * 1.25).toFixed(1));
+      expect(speedSlider.value).toBe('1.25');
+      expect(speedValue.textContent).toBe('1.25x');
+      expect(Number(colAfterReset.getAttribute('data-speed'))).toBe(expectedSpeed125);
+      expect(speedLabel.textContent).toBe(`↓ ${expectedSpeed125}px/s`);
+
+      await act(async () => {
+        speedSlider.value = '2';
+        speedSlider.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+      });
+      const expectedSpeed2x = Number((baseSpeed * 2).toFixed(1));
+      expect(speedSlider.value).toBe('2');
+      expect(speedValue.textContent).toBe('2.0x');
+      expect(Number(colAfterReset.getAttribute('data-speed'))).toBe(expectedSpeed2x);
+      expect(Number(colAfterReset.getAttribute('data-flow-velocity'))).toBeCloseTo(
+        baseSpeed * 2,
+        1
+      );
+      expect(speedLabel.textContent).toBe(`↓ ${expectedSpeed2x}px/s`);
+
+      // Verify requestAnimationFrame tick advances phase using the updated 2x speedMultiplier
+      const phaseBeforeTick = Number(colAfterReset.getAttribute('data-phase'));
+      await act(async () => {
+        latestRafCallback?.(performance.now() + 50);
+      });
+      const phaseAfterTick = Number(colAfterReset.getAttribute('data-phase'));
+      expect(phaseAfterTick).toBeGreaterThan(phaseBeforeTick);
+
+      // Pause flow -> velocity drops to 0 and time card label shows paused state
+      await act(async () => {
+        toggleFlowBtn.click();
+      });
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('paused');
+      expect(Number(colAfterReset.getAttribute('data-flow-velocity'))).toBe(0);
+      expect(speedLabel.textContent).toBe('⏸ 0px/s');
+
+      // Also switch spacing mode to proportional and zoom in before clicking reset
+      await act(async () => {
+        propSpacingBtn.click();
+        zoomInBtn.click();
+      });
+      expect(Number(transformLayer.getAttribute('data-zoom'))).toBeGreaterThan(1);
+
+      // Clicking reset restores speed slider back to 1 (1.0x), resumes flow, resets spacing mode & zoom, and restores 1x column speed
+      await act(async () => {
+        resetBtn.click();
+      });
+      expect(speedSlider.value).toBe('1');
+      expect(speedValue.textContent).toBe('1.0x');
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('normal');
+      expect(Number(colAfterReset.getAttribute('data-speed'))).toBe(baseSpeed);
+      expect(Number(colAfterReset.getAttribute('data-flow-velocity'))).toBe(baseSpeed);
+      expect(speedLabel.textContent).toBe(`↓ ${baseSpeed}px/s`);
+      expect(Number(transformLayer.getAttribute('data-zoom'))).toBe(1);
+      expect(Number(transformLayer.getAttribute('data-pan-x'))).toBe(expectedCenteredPanX);
+
+      // 9. Wheel events (both vertical wheel zoom and horizontal trackpad scroll) never shift pan.y from 0
       await act(async () => {
         canvas.dispatchEvent(
           new dom.window.WheelEvent('wheel', {
