@@ -14,7 +14,9 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  AutoLocateSuggestion,
   BatchLocationEdit,
+  BatchPerPhotoLocation,
   BatchTimeEdit,
   PhotoItem,
   PhotoLocation,
@@ -24,6 +26,7 @@ import { TimelineView } from './components/TimelineView.tsx';
 import { MapView } from './components/MapView.tsx';
 import { PhotoLightbox } from './components/PhotoLightbox.tsx';
 import { BatchEditModal } from './components/BatchEditModal.tsx';
+import { AutoLocateModal } from './components/AutoLocateModal.tsx';
 import { FolderPickerModal } from './components/FolderPickerModal.tsx';
 import { applyTheme, readStoredTheme, type Theme } from './utils/theme.ts';
 
@@ -54,6 +57,7 @@ export const App: React.FC = () => {
     tab: 'time' | 'location';
   }>({ isOpen: false, tab: 'time' });
   const [isFolderModalOpen, setIsFolderModalOpen] = useState<boolean>(false);
+  const [isAutoLocateOpen, setIsAutoLocateOpen] = useState<boolean>(false);
   const [isMapPinPicking, setIsMapPinPicking] = useState<boolean>(false);
 
   // Toast feedback state
@@ -139,6 +143,11 @@ export const App: React.FC = () => {
     [filteredPhotos]
   );
 
+  const autoLocateTargets = useMemo(
+    () => filteredPhotos.filter((p) => p.location === null),
+    [filteredPhotos]
+  );
+
   // Prune selection when subfolder filter changes so hidden photos are not accidentally batch-edited
   useEffect(() => {
     const visibleSet = new Set(filteredPhotos.map((p) => p.id));
@@ -204,7 +213,11 @@ export const App: React.FC = () => {
   const applyBatchEditRequest = useCallback(
     async (
       targetPhotoIds: string[],
-      options: { timeEdit?: BatchTimeEdit; locationEdit?: BatchLocationEdit }
+      options: {
+        timeEdit?: BatchTimeEdit;
+        locationEdit?: BatchLocationEdit;
+        perPhotoLocations?: BatchPerPhotoLocation[];
+      }
     ) => {
       if (!scanData || targetPhotoIds.length === 0) return;
       const res = await fetch('/api/photos/batch', {
@@ -221,12 +234,17 @@ export const App: React.FC = () => {
         throw new Error((updated as any).error || 'Batch update failed');
       }
       setScanData(updated);
+      const photoCountLabel = `${targetPhotoIds.length} photo${targetPhotoIds.length === 1 ? '' : 's'}`;
+      if (options.perPhotoLocations) {
+        showToast(`Auto-located ${photoCountLabel}`);
+        return;
+      }
       const actionDesc = options.timeEdit
         ? 'timestamps'
         : options.locationEdit?.mode === 'remove'
           ? 'removed locations'
           : 'locations';
-      showToast(`Updated ${actionDesc} for ${targetPhotoIds.length} photo${targetPhotoIds.length === 1 ? '' : 's'}`);
+      showToast(`Updated ${actionDesc} for ${photoCountLabel}`);
     },
     [scanData, showToast]
   );
@@ -247,6 +265,24 @@ export const App: React.FC = () => {
       });
     },
     [applyBatchEditRequest]
+  );
+
+  const handleAutoLocateApply = useCallback(
+    async (selected: AutoLocateSuggestion[]) => {
+      if (selected.length === 0) return;
+      try {
+        const photoIds = selected.map((s) => s.photoId);
+        await applyBatchEditRequest(photoIds, {
+          perPhotoLocations: selected.map((s) => ({ photoId: s.photoId, location: s.location })),
+        });
+        setIsAutoLocateOpen(false);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Auto-locate failed');
+        // Rethrow so AutoLocateModal keeps its results and shows the error inline.
+        throw err;
+      }
+    },
+    [applyBatchEditRequest, showToast]
   );
 
   return (
@@ -451,6 +487,7 @@ export const App: React.FC = () => {
             isPickingLocation={isMapPinPicking}
             onChangePickingLocation={setIsMapPinPicking}
             appTheme={theme}
+            onOpenAutoLocate={() => setIsAutoLocateOpen(true)}
           />
         )}
 
@@ -504,6 +541,16 @@ export const App: React.FC = () => {
           setActiveView('location');
           setIsMapPinPicking(true);
         }}
+        onOpenAutoLocate={() => setIsAutoLocateOpen(true)}
+      />
+
+      {/* Auto-Locate Modal */}
+      <AutoLocateModal
+        isOpen={isAutoLocateOpen}
+        folderPath={scanData?.folderPath ?? ''}
+        targets={autoLocateTargets}
+        onClose={() => setIsAutoLocateOpen(false)}
+        onApply={handleAutoLocateApply}
       />
 
       {/* Folder Browser & Demo Loader Modal */}

@@ -137,7 +137,7 @@ The header button switches the whole app to a light palette, and the choice is r
 | :--- | :--- |
 | **Frontend** | React 19, TypeScript 5.7, Vite 6, Tailwind CSS v4, Framer Motion, Lucide React |
 | **Map & Spatial** | MapLibre GL JS v5 (`globe` projection), Supercluster |
-| **Backend & Media** | Node.js, Express 4 (integrated as Vite middleware + standalone server), `exifr` (EXIF/GPS parser), `sharp` (demo album generator) |
+| **Backend & Media** | Node.js, Express 4 (integrated as Vite middleware + standalone server), `exifr` (EXIF/GPS parser), `sharp` (demo album generator), `stream-json` (large location-history files) |
 | **Testing** | Vitest 3, Supertest, JSDOM, Playwright (end-to-end) |
 
 ---
@@ -148,11 +148,15 @@ The header button switches the whole app to a light palette, and the choice is r
 MyAlbum/
 ├── server/
 │   ├── app.ts                 # Express REST API, recursive folder scanner, EXIF parser & sidecar store
-│   ├── demoGenerator.ts       # Generates sample photos across nested subfolders using Sharp
+│   ├── autoLocate.ts          # Auto-locate orchestration
+│   ├── demoGenerator.ts       # Generates sample photos and a sample GPX track
+│   ├── geocoder.ts            # Opt-in Nominatim client and persistent cache
+│   ├── trackReader.ts         # GPX, Records.json and Timeline.json readers
 │   └── index.ts               # Standalone Express server entry point
 ├── src/
 │   ├── components/
 │   │   ├── BatchEditModal.tsx # Floating selection dock & batch time/location editor modal
+│   │   ├── AutoLocateModal.tsx # Track, time and source controls with suggestion review
 │   │   ├── FolderBrowserModal.tsx # Interactive local filesystem directory picker modal
 │   │   ├── MapView.tsx        # 3D Globe / MapLibre GL view with Supercluster & pin picker
 │   │   ├── PhotoLightbox.tsx  # Full-screen photo viewer & camera EXIF inspector
@@ -163,11 +167,14 @@ MyAlbum/
 │   │   ├── mapClusters.ts     # Supercluster indexing, cluster querying & globe hemisphere visibility math
 │   │   ├── theme.ts           # Light/dark theme storage and root class helpers
 │   │   └── timelineMath.ts    # Timeline bucketing, zoom granularity merging, FLIP transitions & swipe decay math
+│   │   ├── autoLocate.ts      # Isomorphic track, companion and place-name matching
+│   │   └── placeGazetteer.ts  # Offline city, landmark and region coordinates
 │   ├── App.tsx                # Top-level application shell, header bar, folder scanner & state management
 │   ├── index.css              # Tailwind CSS v4 imports, light/dark palette overrides & timeline keyframe animations
 │   └── main.tsx               # React 19 root mount
 ├── e2e/
 │   ├── fixtures.ts                   # Shared Playwright fixtures and on-screen element helpers
+│   ├── auto-locate.spec.ts           # Sample-track review and applying location suggestions
 │   ├── lightbox.spec.ts              # Lightbox opening, EXIF details & Escape to close
 │   ├── map.spec.ts                   # Globe clusters, flat-map photo pins & batch pin picker
 │   ├── selection-and-batch.spec.ts   # Day-string selection and batch location/time dialogs
@@ -181,10 +188,13 @@ MyAlbum/
 │   ├── map/
 │   │   └── clusters.test.ts          # Globe clustering and high-zoom marker expansion
 │   ├── server/
+│   │   ├── auto-locate.test.ts       # Auto-locate API, track browsing and Nominatim opt-in/cache
 │   │   ├── batch-edits.test.ts       # Batch time & location edits with sidecar persistence
 │   │   ├── demo-album.test.ts        # Built-in demo album generation and scanning
 │   │   ├── edge-cases.test.ts        # Empty inputs, coordinate clamping & API error paths
 │   │   └── exif-metadata.test.ts     # EXIF + GPS embedding and parsing round-trip
+│   │   ├── geocoder.test.ts          # Nominatim rate limiting and persistent cache
+│   │   └── track-reader.test.ts      # GPX and streaming location-history readers
 │   ├── timeline/
 │   │   ├── day-columns.test.ts       # Column ordering, spacing modes & loop transitions
 │   │   ├── granularity-merge.test.ts # Daily → weekly → monthly → yearly string merging
@@ -246,12 +256,29 @@ npm run build
 
 ---
 
+## 📍 Auto-Locate
+
+Auto-Locate suggests locations for unlocated photos in the current folder filter. It never writes coordinates until you review and apply selected suggestions. Matching uses these sources, from highest to lowest priority:
+
+1. **Track** — GPX, Google Takeout `Records.json`, or on-device Google Maps `Timeline.json`. Timed points are interpolated when possible, otherwise the nearest point inside the chosen time window is used.
+2. **Companion photos** — Nearby located photos are used as anchors. Interpolation is limited to anchor gaps of at most two hours and locations within 100 km; otherwise the nearest anchor inside the time window is used.
+3. **Offline place names** — A bundled gazetteer matches city, landmark, region and country names in folder and file names.
+4. **Nominatim** — An optional online fallback for remaining folder/file-name tokens.
+
+EXIF wall-clock timestamps use each photo's `OffsetTimeOriginal` when available, or the UTC offset entered in the dialog. The clock-drift adjustment applies only to unlocated target photos; located anchors and track timestamps are treated as already correct. A wider time window can find more matches but may use less-nearby points. Confidence values are heuristic review aids, not an accuracy guarantee: track matches are generally the most precise, companion matches approximate nearby positions, and gazetteer region/country coordinates are representative points rather than photo-level GPS.
+
+**Nominatim is off by default.** When enabled, only unmatched place-name text from folder and file names is sent to `openstreetmap.org`; images and track contents are not sent. The public Nominatim service does not require an API key or paid account, but its use is subject to the [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/). MyAlbum limits each run to 20 unique place tokens and spaces requests. Results are cached at `~/.myalbum/geocode-cache.json`; set `MYALBUM_DATA_DIR` to change the cache directory. When an applied suggestion came from Nominatim, the review shows `© OpenStreetMap contributors` attribution.
+
+---
+
 ## 🔌 REST API Endpoints
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `POST` | `/api/scan` | Recursively scans `{ folderPath }`, parses EXIF/GPS metadata, merges `.myalbum-overrides.json`, and returns `PhotoItem[]`. |
 | `POST` | `/api/demo` | Generates (if needed) and scans the built-in `./sample-photos` demo library with nested subfolders. |
-| `GET` | `/api/browse?dir=...` | Lists system drives, parent path, subdirectories, and image counts for the interactive folder picker. |
+| `GET` | `/api/browse?dir=...` | Lists system drives, parent path, subdirectories, and image counts; add `kind=track` to list `.gpx` and `.json` files. |
+| `GET` | `/api/demo/sample-track.gpx` | Returns the generated sample GPX track for the demo album. |
 | `GET` | `/api/photo?path=...` | Streams a local photo file safely to the browser with path/extension validation. |
-| `PATCH` | `/api/photos/batch` | Applies batch timestamp (`shift` / `exact` / `reset`) and/or location (`set` / `remove`) updates to `.myalbum-overrides.json`. |
+| `POST` | `/api/photos/auto-locate` | Returns track, companion, gazetteer and optionally Nominatim suggestions for selected unlocated photos; returns derived suggestions, not raw track data. |
+| `PATCH` | `/api/photos/batch` | Applies batch timestamp (`offset` / `exact` / `restore`) and/or location (`set` / `remove` / `restore`) updates, including per-photo auto-locate suggestions, to `.myalbum-overrides.json`. |

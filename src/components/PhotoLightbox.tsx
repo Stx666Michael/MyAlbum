@@ -15,6 +15,7 @@ import {
   Edit3,
   Trash2,
   Check,
+  Crosshair,
   Sparkles,
 } from 'lucide-react';
 import type { PhotoItem } from '../types/photo.ts';
@@ -310,9 +311,20 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               {photo.location ? (
                 <>
                   <div>
-                    <p className="text-sm font-semibold text-slate-50">
-                      {photo.location.name || 'Pinned Coordinates'}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-50">
+                        {photo.location.name || 'Pinned Coordinates'}
+                      </p>
+                      {photo.isAutoLocated && (
+                        <span
+                          className="flex shrink-0 items-center gap-1 rounded-full bg-sky-500/20 border border-sky-500/40 px-2 py-0.5 text-[10px] font-semibold text-sky-300"
+                          data-testid="auto-located-badge"
+                        >
+                          <Crosshair className="h-3 w-3" />
+                          Auto-located
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-0.5 font-mono text-xs text-emerald-300/90">
                       {photo.location.lat.toFixed(4)}° {photo.location.lat >= 0 ? 'N' : 'S'},{' '}
                       {photo.location.lng.toFixed(4)}° {photo.location.lng >= 0 ? 'E' : 'W'}

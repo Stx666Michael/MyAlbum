@@ -3,6 +3,8 @@ export interface RawExifInput {
   model?: string;
   lensModel?: string;
   dateTimeOriginal?: string; // ISO string or "YYYY:MM:DD HH:MM:SS"
+  offsetTimeOriginal?: string; // "+HH:MM" or "-HH:MM", written as tag 0x9011
+  offsetTimeDigitized?: string; // "+HH:MM" or "-HH:MM", written as tag 0x9012
   exposureTime?: [number, number]; // [numerator, denominator]
   fNumber?: number; // e.g. 2.8
   iso?: number;
@@ -59,6 +61,19 @@ function gpsCoordEntry(tag: number, absDeg: number): IfdEntrySpec {
   return { tag, type: 5, count: 3, data: buf };
 }
 
+// Hours are capped at 14, the largest real UTC offset (UTC+14:00).
+const UTC_OFFSET_PATTERN = /^[+-](?:0\d|1[0-4]):[0-5]\d$/;
+
+function checkUtcOffset(field: string, value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !UTC_OFFSET_PATTERN.test(value)) {
+    throw new Error(`Invalid ${field} "${String(value)}": expected "+HH:MM" or "-HH:MM" (hours 00-14, minutes 00-59)`);
+  }
+  return value;
+}
+
 export function formatExifDate(isoOrExif: string): string {
   if (/^\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}$/.test(isoOrExif)) {
     return isoOrExif;
@@ -106,6 +121,8 @@ function serializeIfd(entries: IfdEntrySpec[], ifdStartOffset: number): Buffer {
 export function buildExifApp1Segment(input: RawExifInput): Buffer {
   const hasGps = typeof input.lat === 'number' && typeof input.lng === 'number';
   const dateStr = input.dateTimeOriginal ? formatExifDate(input.dateTimeOriginal) : undefined;
+  const offsetTimeOriginal = checkUtcOffset('offsetTimeOriginal', input.offsetTimeOriginal);
+  const offsetTimeDigitized = checkUtcOffset('offsetTimeDigitized', input.offsetTimeDigitized);
 
   // Build Exif SubIFD entries
   const exifEntries: IfdEntrySpec[] = [];
@@ -121,6 +138,12 @@ export function buildExifApp1Segment(input: RawExifInput): Buffer {
   if (dateStr) {
     exifEntries.push(asciiEntry(0x9003, dateStr));
     exifEntries.push(asciiEntry(0x9004, dateStr));
+  }
+  if (offsetTimeOriginal) {
+    exifEntries.push(asciiEntry(0x9011, offsetTimeOriginal));
+  }
+  if (offsetTimeDigitized) {
+    exifEntries.push(asciiEntry(0x9012, offsetTimeDigitized));
   }
   if (typeof input.focalLength === 'number') {
     exifEntries.push(rationalEntry(0x920a, Math.round(input.focalLength * 10), 10));

@@ -4,9 +4,18 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import exifr from 'exifr';
-import { ensureDemoPhotosGenerated } from './demoGenerator.ts';
+import { buildDemoSampleTrackGpx, ensureDemoPhotosGenerated } from './demoGenerator.ts';
+import { autoLocatePhotos, autoLocateTargetTimes } from './autoLocate.ts';
+import { createGeocodeSession } from './geocoder.ts';
+import { readTrackFile, TrackFormatError } from './trackReader.ts';
+import { parseGpx, sortByUtc } from '../src/utils/autoLocate.ts';
 import type {
+  AutoLocateOptions,
+  AutoLocateRequest,
+  AutoLocateTrackSource,
+  AutoLocateWindowMinutes,
   BatchEditRequest,
+  BrowseFileEntry,
   BrowseResponse,
   DirectoryEntry,
   PhotoExif,
@@ -55,9 +64,116 @@ const IGNORED_DIRS = new Set([
 interface PhotoOverrideEntry {
   timestamp?: string;
   location?: PhotoLocation | null;
+  // Set when auto-locate wrote `location`. Manual location edits clear it.
+  locationSource?: 'auto-locate';
 }
 
 type OverridesMap = Record<string, PhotoOverrideEntry>;
+
+class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isAutoLocateWindowMinutes(value: unknown): value is AutoLocateWindowMinutes {
+  return typeof value === 'number' && [30, 120, 360, 1440, 10080].includes(value);
+}
+
+function parseAutoLocateRequest(value: unknown): AutoLocateRequest {
+  if (!isRecord(value)) {
+    throw new ApiRequestError('Request body must be an object', 400);
+  }
+  if (typeof value.folderPath !== 'string' || value.folderPath.trim() === '') {
+    throw new ApiRequestError('folderPath is required', 400);
+  }
+  if (
+    !Array.isArray(value.photoIds) ||
+    value.photoIds.length === 0 ||
+    !value.photoIds.every((photoId) => typeof photoId === 'string' && photoId.length > 0)
+  ) {
+    throw new ApiRequestError('photoIds must be a non-empty array of strings', 400);
+  }
+  if (new Set(value.photoIds).size !== value.photoIds.length) {
+    throw new ApiRequestError('photoIds must not contain duplicates', 400);
+  }
+  if (!isRecord(value.options)) {
+    throw new ApiRequestError('options is required', 400);
+  }
+
+  const rawOptions = value.options;
+  if (!isAutoLocateWindowMinutes(rawOptions.windowMinutes)) {
+    throw new ApiRequestError('options.windowMinutes must be 30, 120, 360, 1440 or 10080', 400);
+  }
+  if (
+    typeof rawOptions.utcOffsetMinutes !== 'number' ||
+    !Number.isInteger(rawOptions.utcOffsetMinutes) ||
+    rawOptions.utcOffsetMinutes < -840 ||
+    rawOptions.utcOffsetMinutes > 840
+  ) {
+    throw new ApiRequestError('options.utcOffsetMinutes must be an integer from -840 to 840', 400);
+  }
+  if (
+    typeof rawOptions.driftMinutes !== 'number' ||
+    !Number.isInteger(rawOptions.driftMinutes) ||
+    rawOptions.driftMinutes < -720 ||
+    rawOptions.driftMinutes > 720
+  ) {
+    throw new ApiRequestError('options.driftMinutes must be an integer from -720 to 720', 400);
+  }
+  if (typeof rawOptions.useEmbeddedOffset !== 'boolean') {
+    throw new ApiRequestError('options.useEmbeddedOffset must be a boolean', 400);
+  }
+  if (typeof rawOptions.enableCompanion !== 'boolean') {
+    throw new ApiRequestError('options.enableCompanion must be a boolean', 400);
+  }
+  if (typeof rawOptions.enableGazetteer !== 'boolean') {
+    throw new ApiRequestError('options.enableGazetteer must be a boolean', 400);
+  }
+  if (rawOptions.enableNominatim !== undefined && typeof rawOptions.enableNominatim !== 'boolean') {
+    throw new ApiRequestError('options.enableNominatim must be a boolean', 400);
+  }
+
+  let trackSource: AutoLocateTrackSource | undefined;
+  if (value.trackSource !== undefined) {
+    if (!isRecord(value.trackSource)) {
+      throw new ApiRequestError('trackSource must be an object', 400);
+    }
+    if (value.trackSource.type === 'sample') {
+      trackSource = { type: 'sample' };
+    } else if (value.trackSource.type === 'file') {
+      if (typeof value.trackSource.path !== 'string' || value.trackSource.path.trim() === '') {
+        throw new ApiRequestError('trackSource.path is required for a file track', 400);
+      }
+      trackSource = { type: 'file', path: value.trackSource.path };
+    } else {
+      throw new ApiRequestError('trackSource.type must be "file" or "sample"', 400);
+    }
+  }
+
+  const options: AutoLocateOptions = {
+    windowMinutes: rawOptions.windowMinutes,
+    utcOffsetMinutes: rawOptions.utcOffsetMinutes,
+    driftMinutes: rawOptions.driftMinutes,
+    useEmbeddedOffset: rawOptions.useEmbeddedOffset,
+    enableCompanion: rawOptions.enableCompanion,
+    enableGazetteer: rawOptions.enableGazetteer,
+    enableNominatim: rawOptions.enableNominatim === true,
+  };
+  return {
+    folderPath: value.folderPath,
+    photoIds: value.photoIds,
+    ...(trackSource ? { trackSource } : {}),
+    options,
+  };
+}
 
 const KNOWN_CITIES: Array<{ name: string; lat: number; lng: number }> = [
   { name: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503 },
@@ -129,6 +245,21 @@ function normalizeExifTimestamp(rawDate: unknown, fallbackMs: number): string {
     }
   }
   return new Date(fallbackMs).toISOString();
+}
+
+// Date tags in fallback order, each paired with the offset tag that describes its timezone
+const EXIF_DATE_SOURCES: Array<{ dateTag: string; offsetTag: string | null }> = [
+  { dateTag: 'DateTimeOriginal', offsetTag: 'OffsetTimeOriginal' },
+  { dateTag: 'CreateDate', offsetTag: 'OffsetTimeDigitized' },
+  { dateTag: 'ModifyDate', offsetTag: null },
+];
+
+function parseUtcOffsetMinutes(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^([+-])(0\d|1[0-4]):([0-5]\d)$/);
+  if (!match) return null;
+  const minutes = Number(match[2]) * 60 + Number(match[3]);
+  return match[1] === '-' && minutes > 0 ? -minutes : minutes;
 }
 
 async function readOverrides(folderPath: string): Promise<OverridesMap> {
@@ -220,8 +351,16 @@ export async function scanPhotoFolder(folderPath: string): Promise<ScanResponse>
       }
 
       const fallbackMs = fileStat.mtimeMs || fileStat.birthtimeMs || Date.now();
-      const rawDate = rawExif?.DateTimeOriginal ?? rawExif?.CreateDate ?? rawExif?.ModifyDate;
+      const exifDateSource = EXIF_DATE_SOURCES.find(({ dateTag }) => rawExif?.[dateTag] != null);
+      const rawDate = exifDateSource ? rawExif?.[exifDateSource.dateTag] : undefined;
       const originalTimestamp = normalizeExifTimestamp(rawDate, fallbackMs);
+      // Only file time depends on fallbackMs, so a 1 ms shift reveals whether the EXIF date was used.
+      const timestampFromExif = normalizeExifTimestamp(rawDate, fallbackMs + 1) === originalTimestamp;
+      const timestampSource = timestampFromExif ? 'exif' : 'file';
+      const exifOffsetMinutes =
+        timestampFromExif && exifDateSource?.offsetTag
+          ? parseUtcOffsetMinutes(rawExif?.[exifDateSource.offsetTag])
+          : null;
 
       let originalLocation: PhotoLocation | null = null;
       if (
@@ -272,6 +411,8 @@ export async function scanPhotoFolder(folderPath: string): Promise<ScanResponse>
         effectiveLocation = override.location ?? null;
       }
 
+      const isAutoLocated = override?.locationSource === 'auto-locate' && effectiveLocation !== null;
+
       return {
         id: relativePath,
         fileName: path.basename(fullPath),
@@ -288,6 +429,9 @@ export async function scanPhotoFolder(folderPath: string): Promise<ScanResponse>
         isTimeEdited,
         isLocationEdited,
         isEdited: isTimeEdited || isLocationEdited,
+        timestampSource,
+        exifOffsetMinutes,
+        isAutoLocated,
       };
     })
   );
@@ -325,6 +469,63 @@ async function detectDrives(): Promise<string[]> {
   return drives.length > 0 ? drives : ['C:\\'];
 }
 
+// Validates every entry before any override is touched, so a rejected batch leaves the sidecar unchanged.
+function resolvePerPhotoLocations(body: BatchEditRequest, photoMap: Map<string, PhotoItem>) {
+  if (body.timeEdit != null || body.locationEdit != null) {
+    throw new Error('perPhotoLocations cannot be combined with timeEdit or locationEdit');
+  }
+  if (!Array.isArray(body.perPhotoLocations) || body.perPhotoLocations.length === 0) {
+    throw new Error('perPhotoLocations must be a non-empty array');
+  }
+  if (body.photoIds != null && !Array.isArray(body.photoIds)) {
+    throw new Error('photoIds must be an array');
+  }
+
+  const seenIds = new Set<string>();
+  const targets = body.perPhotoLocations.map((item) => {
+    if (!item || typeof item.photoId !== 'string') {
+      throw new Error('Each perPhotoLocations entry needs a string photoId');
+    }
+    if (seenIds.has(item.photoId)) {
+      throw new Error(`Duplicate photoId in perPhotoLocations: ${item.photoId}`);
+    }
+    if (!photoMap.has(item.photoId)) {
+      throw new Error(`Photo not found for photoId: ${item.photoId}`);
+    }
+    const location = item.location;
+    if (
+      !location ||
+      typeof location.lat !== 'number' ||
+      typeof location.lng !== 'number' ||
+      !Number.isFinite(location.lat) ||
+      !Number.isFinite(location.lng)
+    ) {
+      throw new Error(`Invalid location coordinates for photoId: ${item.photoId}`);
+    }
+    if (typeof location.name !== 'string') {
+      throw new Error(`Location name must be a string for photoId: ${item.photoId}`);
+    }
+    seenIds.add(item.photoId);
+    return {
+      photoId: item.photoId,
+      location: {
+        lat: Math.max(-90, Math.min(90, Number(location.lat.toFixed(6)))),
+        lng: Math.max(-180, Math.min(180, Number(location.lng.toFixed(6)))),
+        name: location.name.trim(),
+      },
+    };
+  });
+
+  if (Array.isArray(body.photoIds) && body.photoIds.length > 0) {
+    const requestedIds = new Set(body.photoIds);
+    if (requestedIds.size !== seenIds.size || body.photoIds.some((id) => !seenIds.has(id))) {
+      throw new Error('photoIds must match the photoIds in perPhotoLocations exactly');
+    }
+  }
+
+  return targets;
+}
+
 export function createApiApp() {
   const app = express();
   app.use(cors());
@@ -346,6 +547,8 @@ export function createApiApp() {
       const entries = await fs.readdir(currentPath, { withFileTypes: true });
       let imageCountInCurrent = 0;
       const directories: DirectoryEntry[] = [];
+      const includeTrackFiles = req.query.kind === 'track';
+      const files: BrowseFileEntry[] = [];
 
       for (const entry of entries) {
         if (entry.name.startsWith('.') || IGNORED_DIRS.has(entry.name)) continue;
@@ -354,6 +557,10 @@ export function createApiApp() {
           const ext = path.extname(entry.name).toLowerCase();
           if (IMAGE_EXTENSIONS.has(ext)) {
             imageCountInCurrent++;
+          }
+          if (includeTrackFiles && (ext === '.gpx' || ext === '.json')) {
+            const stat = await fs.stat(entryFullPath);
+            files.push({ name: entry.name, path: entryFullPath, size: stat.size });
           }
         } else if (entry.isDirectory()) {
           let hasSubfolders = false;
@@ -388,10 +595,96 @@ export function createApiApp() {
         drives,
         directories,
         imageCountInCurrent,
+        ...(includeTrackFiles ? { files: files.sort((a, b) => a.name.localeCompare(b.name)) } : {}),
       };
       res.json(response);
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'Unable to browse directory' });
+    }
+  });
+
+  app.get('/api/demo/sample-track.gpx', (_req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'application/gpx+xml');
+    res.send(buildDemoSampleTrackGpx());
+  });
+
+  app.post('/api/photos/auto-locate', async (req: Request, res: Response) => {
+    try {
+      const request = parseAutoLocateRequest(req.body);
+      const scanResult = await scanPhotoFolder(request.folderPath);
+      const photosById = new Map(scanResult.photos.map((photo) => [photo.id, photo]));
+      const missingIds = request.photoIds.filter((photoId) => !photosById.has(photoId));
+      if (missingIds.length > 0) {
+        throw new ApiRequestError(`Photo IDs not found: ${missingIds.join(', ')}`, 400);
+      }
+
+      let track = null;
+      if (request.trackSource?.type === 'file') {
+        const trackPath = path.resolve(request.trackSource.path);
+        const extension = path.extname(trackPath).toLowerCase();
+        if (extension !== '.gpx' && extension !== '.json') {
+          throw new ApiRequestError('Track file must be .gpx or .json', 400);
+        }
+        let trackStat;
+        try {
+          trackStat = await fs.stat(trackPath);
+        } catch (error) {
+          if (isRecord(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
+            throw new ApiRequestError('Track file not found', 404);
+          }
+          throw error;
+        }
+        if (!trackStat.isFile()) {
+          throw new ApiRequestError('Track file not found', 404);
+        }
+
+        const targetTimes = autoLocateTargetTimes(scanResult.photos, request.photoIds, request.options);
+        const windowMs = request.options.windowMinutes * 60_000;
+        const trackWindow =
+          targetTimes.length > 0
+            ? {
+                startMs: targetTimes.reduce((min, utcMs) => Math.min(min, utcMs), Number.POSITIVE_INFINITY) -
+                  windowMs,
+                endMs: targetTimes.reduce((max, utcMs) => Math.max(max, utcMs), Number.NEGATIVE_INFINITY) +
+                  windowMs,
+              }
+            : undefined;
+        try {
+          track = await readTrackFile(trackPath, trackWindow);
+        } catch (error) {
+          if (error instanceof TrackFormatError) {
+            throw new ApiRequestError(error.message, 400);
+          }
+          throw error;
+        }
+      } else if (request.trackSource?.type === 'sample') {
+        const points = sortByUtc(parseGpx(buildDemoSampleTrackGpx()));
+        track = {
+          points,
+          spanStartMs: points[0]?.utcMs ?? null,
+          spanEndMs: points.at(-1)?.utcMs ?? null,
+        };
+      }
+
+      const geocoder = request.options.enableNominatim ? createGeocodeSession() : undefined;
+      const result = await autoLocatePhotos(
+        scanResult.photos,
+        request.photoIds,
+        request.options,
+        track,
+        geocoder,
+      );
+      res.json(result);
+    } catch (error: unknown) {
+      const status =
+        error instanceof ApiRequestError
+          ? error.status
+          : isRecord(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+            ? 404
+            : 400;
+      res.status(status).json({
+        error: error instanceof Error ? error.message : 'Auto-locate failed',
+      });
     }
   });
 
@@ -466,7 +759,8 @@ export function createApiApp() {
         res.status(400).json({ error: 'folderPath is required' });
         return;
       }
-      if (!Array.isArray(body.photoIds) || body.photoIds.length === 0) {
+      const hasPerPhotoLocations = body.perPhotoLocations != null;
+      if (!hasPerPhotoLocations && (!Array.isArray(body.photoIds) || body.photoIds.length === 0)) {
         res.status(400).json({ error: 'photoIds must be a non-empty array' });
         return;
       }
@@ -475,6 +769,20 @@ export function createApiApp() {
       const currentScan = await scanPhotoFolder(resolvedRoot);
       const photoMap = new Map<string, PhotoItem>(currentScan.photos.map((p) => [p.id, p]));
       const overrides = await readOverrides(resolvedRoot);
+
+      if (hasPerPhotoLocations) {
+        const targets = resolvePerPhotoLocations(body, photoMap);
+        targets.forEach(({ photoId, location }) => {
+          const entry: PhotoOverrideEntry = { ...(overrides[photoId] || {}) };
+          entry.location = location;
+          entry.locationSource = 'auto-locate';
+          overrides[photoId] = entry;
+        });
+        await writeOverrides(resolvedRoot, overrides);
+        const updatedScan = await scanPhotoFolder(resolvedRoot);
+        res.json(updatedScan);
+        return;
+      }
 
       // Sort selected photos chronologically so sequential stepMinutes preserves order
       const selectedPhotos = body.photoIds
@@ -510,8 +818,10 @@ export function createApiApp() {
         if (body.locationEdit) {
           if (body.locationEdit.mode === 'restore') {
             delete entry.location;
+            delete entry.locationSource;
           } else if (body.locationEdit.mode === 'remove') {
             entry.location = null;
+            delete entry.locationSource;
           } else if (body.locationEdit.mode === 'set') {
             const { lat, lng, name } = body.locationEdit.location;
             if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -524,6 +834,7 @@ export function createApiApp() {
               lng: clampedLng,
               name: name?.trim() || inferLocationName(clampedLat, clampedLng),
             };
+            delete entry.locationSource;
           }
         }
 

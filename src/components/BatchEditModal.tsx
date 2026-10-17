@@ -32,6 +32,7 @@ interface BatchEditModalProps {
     locationEdit?: BatchLocationEdit;
   }) => Promise<void>;
   onSwitchToMapPinPicker: () => void;
+  onOpenAutoLocate?: () => void;
 }
 
 const WORLD_PRESETS = [
@@ -52,6 +53,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
   onClose,
   onApplyBatch,
   onSwitchToMapPinPicker,
+  onOpenAutoLocate,
 }) => {
   const [activeTab, setActiveTab] = useState<'time' | 'location'>(initialTab);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -503,6 +505,26 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                   </p>
                 </button>
               </div>
+
+              {onOpenAutoLocate && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+                  <p className="text-[11px] text-slate-400">
+                    Suggests places for unlocated photos in this view. Nothing changes until you apply.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenAutoLocate();
+                    }}
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/15 px-2.5 py-1 text-xs font-medium text-sky-300 hover:bg-sky-500/25 transition"
+                    data-testid="open-auto-locate-btn"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Auto-locate unlocated…
+                  </button>
+                </div>
+              )}
 
               {locMode === 'set' && (
                 <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-4">

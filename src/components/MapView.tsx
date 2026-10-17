@@ -139,6 +139,7 @@ interface MapViewProps {
   isPickingLocation?: boolean;
   onChangePickingLocation?: (picking: boolean) => void;
   appTheme: Theme;
+  onOpenAutoLocate?: () => void;
 }
 
 const PRESET_LOCATIONS: Array<{ name: string; lat: number; lng: number }> = [
@@ -163,6 +164,7 @@ export const MapView: React.FC<MapViewProps> = ({
   isPickingLocation = false,
   appTheme,
   onChangePickingLocation,
+  onOpenAutoLocate,
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1097,21 +1099,35 @@ export const MapView: React.FC<MapViewProps> = ({
               {unlocatedPhotos.every((p) => selectedIds.has(p.id)) ? 'Deselect All' : 'Select All Unlocated'}
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                const ids = unlocatedPhotos.map((p) => p.id);
-                if (!ids.some((id) => selectedIds.has(id))) {
-                  onSelectGroup(ids, true);
-                }
-                setPinPicking(true);
-              }}
-              className="flex items-center gap-1 rounded-lg bg-sky-500/20 border border-sky-500/40 px-2.5 py-1 text-[11px] font-medium text-sky-300 hover:bg-sky-500/30"
-              data-testid="assign-unlocated-on-map-btn"
-            >
-              <Crosshair className="h-3 w-3" />
-              Place on Map
-            </button>
+            <div className="flex items-center gap-1.5">
+              {onOpenAutoLocate && (
+                <button
+                  type="button"
+                  onClick={() => onOpenAutoLocate()}
+                  disabled={unlocatedPhotos.length === 0}
+                  className="flex items-center gap-1 rounded-lg bg-sky-500/20 border border-sky-500/40 px-2.5 py-1 text-[11px] font-medium text-sky-300 hover:bg-sky-500/30 disabled:opacity-40"
+                  data-testid="auto-locate-unlocated-btn"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Auto-Locate
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const ids = unlocatedPhotos.map((p) => p.id);
+                  if (!ids.some((id) => selectedIds.has(id))) {
+                    onSelectGroup(ids, true);
+                  }
+                  setPinPicking(true);
+                }}
+                className="flex items-center gap-1 rounded-lg bg-sky-500/20 border border-sky-500/40 px-2.5 py-1 text-[11px] font-medium text-sky-300 hover:bg-sky-500/30"
+                data-testid="assign-unlocated-on-map-btn"
+              >
+                <Crosshair className="h-3 w-3" />
+                Place on Map
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2.5 overflow-y-auto p-3">

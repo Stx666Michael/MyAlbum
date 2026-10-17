@@ -256,6 +256,56 @@ export const DEMO_PHOTO_SPECS: DemoPhotoSpec[] = [
     motif: 'tokyo',
   },
 
+  // Unlocated Tokyo shots for auto-locate: 1013 is 20 min from a located photo, 1014 and 1015 sit inside the 13:45-17:50 segment
+  {
+    subfolder: '2025-03-Tokyo-Spring/Day1-Shibuya',
+    fileName: 'IMG_1013_Shibuya_Scramble_Umbrellas.jpg',
+    title: 'Shibuya Scramble Umbrella Crowd',
+    dateIso: '2025-03-14T18:10:00.000Z',
+    make: 'Sony',
+    model: 'ILCE-7RM5',
+    lensModel: 'FE 24-70mm F2.8 GM II',
+    focalLength: 40,
+    fNumber: 2.8,
+    exposureTime: [1, 200],
+    iso: 800,
+    theme: 'twilight',
+    accent: '#facc15',
+    motif: 'tokyo',
+  },
+  {
+    subfolder: '2025-03-Tokyo-Spring/Day1-Shibuya',
+    fileName: 'IMG_1014_Shibuya_Sky_Rooftop_Walk.jpg',
+    title: 'Shibuya Sky Rooftop Walkway Study',
+    dateIso: '2025-03-14T14:37:00.000Z',
+    make: 'Sony',
+    model: 'ILCE-7RM5',
+    lensModel: 'FE 16-35mm F2.8 GM II',
+    focalLength: 20,
+    fNumber: 8.0,
+    exposureTime: [1, 800],
+    iso: 100,
+    theme: 'day',
+    accent: '#7dd3fc',
+    motif: 'tokyo',
+  },
+  {
+    subfolder: '2025-03-Tokyo-Spring/Day1-Shibuya',
+    fileName: 'IMG_1015_Harajuku_Takeshita_Crepes.jpg',
+    title: 'Harajuku Takeshita Crepe Stand',
+    dateIso: '2025-03-14T15:48:00.000Z',
+    make: 'Sony',
+    model: 'ILCE-7RM5',
+    lensModel: 'FE 35mm F1.4 GM',
+    focalLength: 35,
+    fNumber: 2.0,
+    exposureTime: [1, 640],
+    iso: 200,
+    theme: 'day',
+    accent: '#f9a8d4',
+    motif: 'tokyo',
+  },
+
   // Day 3: 2025-05-20 — Paris Lumiere
   {
     subfolder: '2025-05-Paris-Lumiere',
@@ -836,6 +886,40 @@ export const DEMO_PHOTO_SPECS: DemoPhotoSpec[] = [
     motif: 'cairo',
   },
 
+  // Unlocated Cairo shots for auto-locate: both sit inside the 16:40-17:55 bracket (75 min apart)
+  {
+    subfolder: '2025-11-Cairo-Desert',
+    fileName: 'IMG_5007_Khan_El_Khalili_Spice_Stalls.jpg',
+    title: 'Khan el-Khalili Spice Stalls at Dusk',
+    dateIso: '2025-11-04T17:12:00.000Z',
+    make: 'Sony',
+    model: 'ILCE-7RM5',
+    lensModel: 'FE 35mm F1.4 GM',
+    focalLength: 35,
+    fNumber: 2.8,
+    exposureTime: [1, 100],
+    iso: 800,
+    theme: 'golden',
+    accent: '#fb923c',
+    motif: 'cairo',
+  },
+  {
+    subfolder: '2025-11-Cairo-Desert',
+    fileName: 'IMG_5008_Zamalek_Corniche_Lights.jpg',
+    title: 'Zamalek Corniche Lights Across the Nile',
+    dateIso: '2025-11-04T17:22:00.000Z',
+    make: 'Sony',
+    model: 'ILCE-7RM5',
+    lensModel: 'FE 24-70mm F2.8 GM II',
+    focalLength: 50,
+    fNumber: 4.0,
+    exposureTime: [1, 60],
+    iso: 1000,
+    theme: 'twilight',
+    accent: '#f43f5e',
+    motif: 'cairo',
+  },
+
   // Day 8: 2026-01-12 — Sydney Harbour Summer
   {
     subfolder: '2026-01-Sydney-Harbour',
@@ -950,6 +1034,24 @@ export const DEMO_PHOTO_SPECS: DemoPhotoSpec[] = [
     theme: 'night',
     accent: '#818cf8',
     motif: 'sydney',
+  },
+
+  // Unlocated, no place token in folder or file name, in the Tokyo gap with no track or bracket: stays unmatched
+  {
+    subfolder: 'Misc',
+    fileName: 'IMG_9001.jpg',
+    title: 'Unlabelled Night Snapshot',
+    dateIso: '2025-03-15T02:30:00.000Z',
+    make: 'Fujifilm',
+    model: 'X-T5',
+    lensModel: 'XF 23mm F1.4 R LM WR',
+    focalLength: 23,
+    fNumber: 2.0,
+    exposureTime: [1, 60],
+    iso: 3200,
+    theme: 'night',
+    accent: '#818cf8',
+    motif: 'tokyo',
   },
 
   // Day 9: 2026-02-02 — Unlocated Studio Session (4 photos without GPS so user can test adding locations)
@@ -1124,7 +1226,7 @@ function getMotifElements(spec: DemoPhotoSpec, index: number): string {
   }
 }
 
-const DEMO_GENERATOR_VERSION = 2;
+const DEMO_GENERATOR_VERSION = 3;
 
 function buildPhotoSvg(spec: DemoPhotoSpec, index: number): string {
   const [skyTop, skyMid, skyBot] = getSkyPalette(spec.theme);
@@ -1152,6 +1254,87 @@ function buildPhotoSvg(spec: DemoPhotoSpec, index: number): string {
     <line x1="260" y1="548" x2="700" y2="548" stroke="${spec.accent}" stroke-opacity="0.16" stroke-width="2" stroke-linecap="round" />
     <line x1="340" y1="578" x2="620" y2="578" stroke="${spec.accent}" stroke-opacity="0.10" stroke-width="2" stroke-linecap="round" />
   </svg>`;
+}
+
+const DEMO_ROUTE_SAMPLE_STEP_MS = 5 * 60 * 1000;
+const DEMO_ROUTE_MAX_GAP_MS = 6 * 60 * 60 * 1000;
+
+interface DemoRouteAnchor {
+  utcMs: number;
+  lat: number;
+  lng: number;
+}
+
+// Trip key is the first folder segment, so both Iceland subfolders form one trip
+function buildDemoRouteSegments(): Array<[DemoRouteAnchor, DemoRouteAnchor]> {
+  const anchorsByTrip = new Map<string, DemoRouteAnchor[]>();
+  for (const spec of DEMO_PHOTO_SPECS) {
+    if (spec.lat === undefined || spec.lng === undefined) continue;
+    const trip = spec.subfolder.split(/[\\/]/)[0];
+    const anchors = anchorsByTrip.get(trip) ?? [];
+    anchors.push({ utcMs: Date.parse(spec.dateIso), lat: spec.lat, lng: spec.lng });
+    anchorsByTrip.set(trip, anchors);
+  }
+
+  const segments: Array<[DemoRouteAnchor, DemoRouteAnchor]> = [];
+  for (const anchors of anchorsByTrip.values()) {
+    anchors.sort((a, b) => a.utcMs - b.utcMs);
+    for (let i = 1; i < anchors.length; i++) {
+      const gapMs = anchors[i].utcMs - anchors[i - 1].utcMs;
+      if (gapMs > 0 && gapMs <= DEMO_ROUTE_MAX_GAP_MS) {
+        segments.push([anchors[i - 1], anchors[i]]);
+      }
+    }
+  }
+  return segments;
+}
+
+const DEMO_ROUTE_SEGMENTS = buildDemoRouteSegments();
+
+function interpolateDemoRoute(start: DemoRouteAnchor, end: DemoRouteAnchor, utcMs: number): { lat: number; lng: number } {
+  const alpha = (utcMs - start.utcMs) / (end.utcMs - start.utcMs);
+  return {
+    lat: start.lat + (end.lat - start.lat) * alpha,
+    lng: start.lng + (end.lng - start.lng) * alpha,
+  };
+}
+
+export function demoRoutePointAt(utcMs: number): { lat: number; lng: number } | null {
+  for (const [start, end] of DEMO_ROUTE_SEGMENTS) {
+    if (utcMs >= start.utcMs && utcMs <= end.utcMs) {
+      return interpolateDemoRoute(start, end, utcMs);
+    }
+  }
+  return null;
+}
+
+export function buildDemoSampleTrackGpx(): string {
+  const samples = new Map<number, { lat: number; lng: number }>();
+  for (const [start, end] of DEMO_ROUTE_SEGMENTS) {
+    for (let utcMs = start.utcMs; utcMs < end.utcMs; utcMs += DEMO_ROUTE_SAMPLE_STEP_MS) {
+      samples.set(utcMs, interpolateDemoRoute(start, end, utcMs));
+    }
+    samples.set(end.utcMs, { lat: end.lat, lng: end.lng });
+  }
+
+  const trkpts = Array.from(samples.entries())
+    .sort(([a], [b]) => a - b)
+    .map(
+      ([utcMs, point]) =>
+        `      <trkpt lat="${point.lat.toFixed(6)}" lon="${point.lng.toFixed(6)}"><time>${new Date(utcMs).toISOString()}</time></trkpt>`
+    );
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<gpx version="1.1" creator="MyAlbum" xmlns="http://www.topografix.com/GPX/1/1">',
+    '  <trk>',
+    '    <trkseg>',
+    ...trkpts,
+    '    </trkseg>',
+    '  </trk>',
+    '</gpx>',
+    '',
+  ].join('\n');
 }
 
 export async function ensureDemoPhotosGenerated(sampleRootDir: string): Promise<void> {
