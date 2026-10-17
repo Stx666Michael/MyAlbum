@@ -69,6 +69,20 @@
 - **Remembered Choice**: The selected theme is saved in `localStorage` and applied before first paint, so a reload doesn't flash the other theme.
 - **Token-Based Palette**: Light mode overrides Tailwind's palette variables in `src/index.css`, so every view re-themes without per-component branches. Bright accent buttons keep dark labels in both themes. On the globe, the Dark Matter and Positron Light basemaps follow the app theme; choosing Voyager or Satellite keeps that basemap when the theme changes.
 
+### 6. Intelligent Multi-Source & Visual AI Auto-Locate (`src/components/AutoLocateModal.tsx`)
+- **Five-Tier Precedence Engine**:
+  - Automatically matches unlocated photos through: **1) GPX/Google Location Tracks → 2) Companion Located Photos (Interpolation / Nearest) → 3) Offline Gazetteer Place Names → 4) OpenStreetMap Nominatim → 5) Visual AI Inferences**.
+- **On-Device Local AI Vision (Zero-Cloud Privacy)**:
+  - Powered by `@huggingface/transformers` (`onnxruntime-node`) with CLIP/GeoCLIP embeddings (`Xenova/geoclip-large-patch14`).
+  - **Album Visual Similarity**: Automatically identifies located anchor photos from the same viewpoint, scene, or monument ($\ge 0.85$ cosine similarity) and copies coordinates with visual confidence.
+  - **GeoCLIP Landmark Prediction**: Continuous coordinate prediction fallback for recognizable worldwide scenery and landmarks.
+- **Local Ollama & Cloud VLM Support**:
+  - Direct integration with local Ollama VLM instances (e.g. `llama3.2-vision`, `llava`, `qwen2.5-vl`) without external network access or fees.
+  - Optional support for OpenAI-compatible Cloud Vision endpoints.
+- **Strict Opt-In & Persistent Cache**:
+  - Both Nominatim and AI Vision are strictly off by default.
+  - Visual embeddings and inference results are persistently cached under `~/.myalbum/ai-locate-cache.json` (`MYALBUM_DATA_DIR`).
+
 ---
 
 ## 📸 Screenshots
@@ -129,6 +143,18 @@ The header button switches the whole app to a light palette, and the choice is r
 
 ![Location globe in light theme with the Positron Light basemap](docs/screenshots/09-light-theme-globe.png)
 
+### Auto-Locate Setup & Multi-Source Configuration
+
+Select a GPX or location-history track, adjust time window presets and camera clock drift, and configure fallback sources including companion photo interpolation, offline gazetteer matching, optional Nominatim lookups, and on-device AI Vision.
+
+![Auto-Locate configuration modal with track picker, time window presets, and AI Vision settings](docs/screenshots/10-auto-locate-sources.png)
+
+### Auto-Locate Suggestion Review & AI Geolocation
+
+Review suggested coordinates, strategy badges (Track, Companion, AI Vision), and confidence scores with visual reasoning before applying changes to sidecar files.
+
+![Auto-Locate suggestion review table with strategy badges, confidence scores, visual similarity reasoning, and batch apply](docs/screenshots/11-auto-locate-review.png)
+
 ---
 
 ## 🛠️ Tech Stack
@@ -137,7 +163,7 @@ The header button switches the whole app to a light palette, and the choice is r
 | :--- | :--- |
 | **Frontend** | React 19, TypeScript 5.7, Vite 6, Tailwind CSS v4, Framer Motion, Lucide React |
 | **Map & Spatial** | MapLibre GL JS v5 (`globe` projection), Supercluster |
-| **Backend & Media** | Node.js, Express 4 (integrated as Vite middleware + standalone server), `exifr` (EXIF/GPS parser), `sharp` (demo album generator), `stream-json` (large location-history files) |
+| **Backend & Media** | Node.js, Express 4 (integrated as Vite middleware + standalone server), `exifr` (EXIF/GPS parser), `sharp` (demo album generator), `stream-json` (large location-history files), `@huggingface/transformers` & `onnxruntime-node` (on-device visual embeddings & GeoCLIP) |
 | **Testing** | Vitest 3, Supertest, JSDOM, Playwright (end-to-end) |
 
 ---
@@ -148,6 +174,7 @@ The header button switches the whole app to a light palette, and the choice is r
 MyAlbum/
 ├── server/
 │   ├── app.ts                 # Express REST API, recursive folder scanner, EXIF parser & sidecar store
+│   ├── aiLocator.ts           # Multi-provider visual AI locator, ONNX embeddings & vector similarity
 │   ├── autoLocate.ts          # Auto-locate orchestration
 │   ├── demoGenerator.ts       # Generates sample photos and a sample GPX track
 │   ├── geocoder.ts            # Opt-in Nominatim client and persistent cache
@@ -156,7 +183,7 @@ MyAlbum/
 ├── src/
 │   ├── components/
 │   │   ├── BatchEditModal.tsx # Floating selection dock & batch time/location editor modal
-│   │   ├── AutoLocateModal.tsx # Track, time and source controls with suggestion review
+│   │   ├── AutoLocateModal.tsx # Track, time, source & AI controls with suggestion review
 │   │   ├── FolderBrowserModal.tsx # Interactive local filesystem directory picker modal
 │   │   ├── MapView.tsx        # 3D Globe / MapLibre GL view with Supercluster & pin picker
 │   │   ├── PhotoLightbox.tsx  # Full-screen photo viewer & camera EXIF inspector
@@ -167,7 +194,7 @@ MyAlbum/
 │   │   ├── mapClusters.ts     # Supercluster indexing, cluster querying & globe hemisphere visibility math
 │   │   ├── theme.ts           # Light/dark theme storage and root class helpers
 │   │   └── timelineMath.ts    # Timeline bucketing, zoom granularity merging, FLIP transitions & swipe decay math
-│   │   ├── autoLocate.ts      # Isomorphic track, companion and place-name matching
+│   │   ├── autoLocate.ts      # Isomorphic track, companion, place-name & AI matching
 │   │   └── placeGazetteer.ts  # Offline city, landmark and region coordinates
 │   ├── App.tsx                # Top-level application shell, header bar, folder scanner & state management
 │   ├── index.css              # Tailwind CSS v4 imports, light/dark palette overrides & timeline keyframe animations
@@ -188,7 +215,8 @@ MyAlbum/
 │   ├── map/
 │   │   └── clusters.test.ts          # Globe clustering and high-zoom marker expansion
 │   ├── server/
-│   │   ├── auto-locate.test.ts       # Auto-locate API, track browsing and Nominatim opt-in/cache
+│   │   ├── ai-locator.test.ts        # Unit tests for local ONNX, Ollama, and Cloud VLM locator
+│   │   ├── auto-locate.test.ts       # Auto-locate API, track browsing, Nominatim & AI opt-in/cache
 │   │   ├── batch-edits.test.ts       # Batch time & location edits with sidecar persistence
 │   │   ├── demo-album.test.ts        # Built-in demo album generation and scanning
 │   │   ├── edge-cases.test.ts        # Empty inputs, coordinate clamping & API error paths
@@ -264,10 +292,17 @@ Auto-Locate suggests locations for unlocated photos in the current folder filter
 2. **Companion photos** — Nearby located photos are used as anchors. Interpolation is limited to anchor gaps of at most two hours and locations within 100 km; otherwise the nearest anchor inside the time window is used.
 3. **Offline place names** — A bundled gazetteer matches city, landmark, region and country names in folder and file names.
 4. **Nominatim** — An optional online fallback for remaining folder/file-name tokens.
+5. **AI Vision (Opt-in)** — Visual scene recognition and geolocation for photos lacking track, timestamp, or naming signals:
+   - **Local ONNX (Default)**: Runs 100% locally on-device using `@huggingface/transformers` (`onnxruntime-node`) with CLIP/GeoCLIP vision embeddings (`Xenova/geoclip-large-patch14`). First checks **Album Visual Similarity** ($\ge 0.85$ cosine similarity) against located anchor photos (matching series of shots, alternate angles, or indoor photos from the same album), then falls back to **GeoCLIP** continuous coordinate prediction for recognizable landmarks and landscapes.
+   - **Local Ollama**: Connects to your local Ollama instance (default `http://localhost:11434`, default model `llama3.2-vision:latest`, also compatible with `llava` and `qwen2.5-vl`) to inspect landmarks, architectural styles, and geographical cues entirely on-device without external communication.
+   - **Cloud Vision API**: Connects to any OpenAI-compatible vision completion endpoint with a user-supplied API key and model.
 
-EXIF wall-clock timestamps use each photo's `OffsetTimeOriginal` when available, or the UTC offset entered in the dialog. The clock-drift adjustment applies only to unlocated target photos; located anchors and track timestamps are treated as already correct. A wider time window can find more matches but may use less-nearby points. Confidence values are heuristic review aids, not an accuracy guarantee: track matches are generally the most precise, companion matches approximate nearby positions, and gazetteer region/country coordinates are representative points rather than photo-level GPS.
+EXIF wall-clock timestamps use each photo's `OffsetTimeOriginal` when available, or the UTC offset entered in the dialog. The clock-drift adjustment applies only to unlocated target photos; located anchors and track timestamps are treated as already correct. A wider time window can find more matches but may use less-nearby points. Confidence values are heuristic review aids, not an accuracy guarantee: track matches are generally the most precise, companion matches approximate nearby positions, gazetteer region/country coordinates are representative points rather than photo-level GPS, and visual similarity scores reflect feature vector closeness.
 
-**Nominatim is off by default.** When enabled, only unmatched place-name text from folder and file names is sent to `openstreetmap.org`; images and track contents are not sent. The public Nominatim service does not require an API key or paid account, but its use is subject to the [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/). MyAlbum limits each run to 20 unique place tokens and spaces requests. Results are cached at `~/.myalbum/geocode-cache.json`; set `MYALBUM_DATA_DIR` to change the cache directory. When an applied suggestion came from Nominatim, the review shows `© OpenStreetMap contributors` attribution.
+**Nominatim and AI Vision are off by default.**
+- When Nominatim is enabled, only unmatched place-name text from folder and file names is sent to `openstreetmap.org`; images and track contents are never sent. The public Nominatim service is subject to the [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/). MyAlbum limits each run to 20 unique place tokens and spaces requests.
+- When AI Vision is enabled with the default **Local ONNX** or **Local Ollama** provider, processing is completely private and runs on your machine without sending images or data to third parties. Cloud VLM only sends images to the specific endpoint you configure with your own API key.
+- Persistent caches are stored under `~/.myalbum/` (`geocode-cache.json` for Nominatim hits, `ai-locate-cache.json` for visual embeddings and AI hits, and `models/` for downloaded ONNX weights); set `MYALBUM_DATA_DIR` to change the directory. When an applied suggestion came from Nominatim or AI Vision, the review table and attribution footer display the corresponding attribution (e.g. `© OpenStreetMap contributors` or `Visual similarity & GeoCLIP (Xenova/geoclip-large-patch14)`).
 
 ---
 
@@ -280,5 +315,5 @@ EXIF wall-clock timestamps use each photo's `OffsetTimeOriginal` when available,
 | `GET` | `/api/browse?dir=...` | Lists system drives, parent path, subdirectories, and image counts; add `kind=track` to list `.gpx` and `.json` files. |
 | `GET` | `/api/demo/sample-track.gpx` | Returns the generated sample GPX track for the demo album. |
 | `GET` | `/api/photo?path=...` | Streams a local photo file safely to the browser with path/extension validation. |
-| `POST` | `/api/photos/auto-locate` | Returns track, companion, gazetteer and optionally Nominatim suggestions for selected unlocated photos; returns derived suggestions, not raw track data. |
+| `POST` | `/api/photos/auto-locate` | Returns track, companion, gazetteer, Nominatim, and AI Vision suggestions for selected unlocated photos. Supports options: `windowMinutes`, `utcOffsetMinutes`, `driftMinutes`, `useEmbeddedOffset`, `enableCompanion`, `enableGazetteer`, `enableNominatim`, `enableAi`, `aiProvider` (`'local-onnx' \| 'ollama' \| 'cloud-vlm'`), `aiModel`, `aiEndpoint`, `aiApiKey`. Returns derived suggestions and stats, never raw track data. |
 | `PATCH` | `/api/photos/batch` | Applies batch timestamp (`offset` / `exact` / `restore`) and/or location (`set` / `remove` / `restore`) updates, including per-photo auto-locate suggestions, to `.myalbum-overrides.json`. |
