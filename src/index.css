@@ -31,3 +31,72 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(56, 189, 248, 0.6);
 }
+
+/* Smooth String Merge & Unmerge Animations across Granularity Boundaries */
+@keyframes timeline-column-merge-keyframes {
+  0% {
+    transform: translate3d(var(--merge-delta-x, 0px), 0, 0) scale(0.96);
+    opacity: 0.72;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes timeline-column-unmerge-keyframes {
+  0% {
+    transform: translate3d(var(--merge-delta-x, 0px), 0, 0) scaleX(0.94);
+    opacity: 0.68;
+  }
+  65% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scaleX(1);
+    opacity: 1;
+  }
+}
+
+@keyframes timeline-ghost-converge-keyframes {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.78;
+  }
+  100% {
+    transform: translate3d(var(--ghost-delta-x, 0px), 0, 0) scale(0.92);
+    opacity: 0;
+  }
+}
+
+@keyframes timeline-merge-card-glow {
+  0% {
+    box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.75), 0 0 28px rgba(56, 189, 248, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0), 0 0 0 rgba(56, 189, 248, 0);
+  }
+}
+
+.timeline-column-merge-enter {
+  animation: timeline-column-merge-keyframes 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+.timeline-column-unmerge-enter {
+  animation: timeline-column-unmerge-keyframes 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+.timeline-ghost-converge {
+  animation: timeline-ghost-converge-keyframes 380ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.timeline-merge-card-pulse {
+  animation: timeline-merge-card-glow 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+

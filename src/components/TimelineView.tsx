@@ -29,12 +29,16 @@ import {
   computeCenteredTimelinePanX,
   computeFlowingCardState,
   computeStringFlowVelocity,
+  computeStringGranularityTransition,
+  computeSwipeVelocityBoost,
+  decayStringSwipeMomentum,
   formatWallClockDate,
   getTimelineZoomMetrics,
   getWallClockParts,
   resolveStringEndHoverDirection,
   type DayColumnGroup,
   type StringEndHoverDirection,
+  type StringGranularityTransition,
   type TimelineGranularity,
 } from '../utils/timelineMath.ts';
 
@@ -50,6 +54,19 @@ interface TimelineViewProps {
 
 const COLUMN_WIDTH = BASE_TIME_CARD_WIDTH_PX;
 const BASE_COLUMN_STEP = 256;
+const STRING_MERGE_TRANSITION_MS = 380;
+
+interface ActiveGranularityTransition extends StringGranularityTransition {
+  id: number;
+  prevGranularity: TimelineGranularity;
+  nextGranularity: TimelineGranularity;
+  prevColumns: DayColumnGroup[];
+  prevColumnWidthPx: number;
+  prevCardHeightPx: number;
+  prevCardSlotHeightPx: number;
+  prevCardScale: number;
+  prevPhases: Record<string, number>;
+}
 
 const GRANULARITY_LABELS: Record<TimelineGranularity, string> = {
   day: 'Daily',
@@ -140,7 +157,186 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   hoveredStringEndRef.current = hoveredStringEnd;
 
   const columnPhasesRef = useRef<Record<string, number>>({});
+  const stringSwipeRef = useRef<{
+    dayKey: string;
+    startX: number;
+    startY: number;
+    lastY: number;
+    lastTime: number;
+    active: boolean;
+  } | null>(null);
+  const stringMomentumRef = useRef<Record<string, number>>({});
+  const [hasActiveMomentum, setHasActiveMomentum] = useState(false);
   const [, setFrameTick] = useState(0);
+
+  // Track previous granularity & columns for smooth merge/unmerge animations
+  const prevGranularityRef = useRef<{
+    photos: PhotoItem[];
+    granularity: TimelineGranularity;
+    columns: DayColumnGroup[];
+    columnWidthPx: number;
+    cardHeightPx: number;
+    cardSlotHeightPx: number;
+    cardScale: number;
+  }>({
+    photos,
+    granularity: zoomMetrics.granularity,
+    columns,
+    columnWidthPx: zoomMetrics.columnWidthPx,
+    cardHeightPx: zoomMetrics.cardHeightPx,
+    cardSlotHeightPx: zoomMetrics.cardSlotHeightPx,
+    cardScale: zoomMetrics.cardScale,
+  });
+  const transitionSeqRef = useRef(0);
+  const transitionTimerRef = useRef<number | null>(null);
+  const activeTransitionRef = useRef<ActiveGranularityTransition | null>(null);
+
+  // Synchronously detect granularity transitions and seed/initialize column phases during render
+  // so the very first frame of a merge/unmerge has FLIP offsets, ghost strings, and continuous phases
+  const prevSnapshot = prevGranularityRef.current;
+  if (prevSnapshot.photos !== photos) {
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = null;
+    }
+    activeTransitionRef.current = null;
+    columnPhasesRef.current = {};
+    stringMomentumRef.current = {};
+    stringSwipeRef.current = null;
+  } else if (prevSnapshot.granularity !== zoomMetrics.granularity) {
+    const prevPhasesSnapshot = { ...columnPhasesRef.current };
+    const prevMomentumSnapshot = { ...stringMomentumRef.current };
+    const transition = computeStringGranularityTransition(
+      prevSnapshot.columns,
+      columns,
+      prevSnapshot.granularity,
+      zoomMetrics.granularity
+    );
+
+    // Phase & swipe momentum continuity: seed uninitialized nextCol phases and active momentum from matching sourceKeys
+    for (const col of columns) {
+      const entering = transition.enteringByKey[col.dayKey];
+      if (entering && entering.sourceKeys.length > 0) {
+        if (columnPhasesRef.current[col.dayKey] === undefined) {
+          const sourcePhases = entering.sourceKeys
+            .map((k) => prevPhasesSnapshot[k])
+            .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+          if (sourcePhases.length > 0) {
+            const avgPhase =
+              sourcePhases.reduce((sum, p) => sum + p, 0) / sourcePhases.length;
+            columnPhasesRef.current[col.dayKey] = Number(avgPhase.toFixed(2));
+          }
+        }
+        if (stringMomentumRef.current[col.dayKey] === undefined) {
+          const sourceBoosts = entering.sourceKeys
+            .map((k) => prevMomentumSnapshot[k])
+            .filter(
+              (v): v is number =>
+                typeof v === 'number' && Number.isFinite(v) && Math.abs(v) >= 1.5
+            );
+          if (sourceBoosts.length > 0) {
+            const avgBoost =
+              sourceBoosts.reduce((sum, b) => sum + b, 0) / sourceBoosts.length;
+            if (Math.abs(avgBoost) >= 1.5) {
+              stringMomentumRef.current[col.dayKey] = Number(avgBoost.toFixed(2));
+            }
+          }
+        }
+      }
+    }
+
+    // Prune phases and momentum from the previous granularity so subsequent unmerges/merges seed fresh phases
+    const nextKeySet = new Set(columns.map((c) => c.dayKey));
+    for (const existingKey of Object.keys(columnPhasesRef.current)) {
+      if (!nextKeySet.has(existingKey)) {
+        delete columnPhasesRef.current[existingKey];
+      }
+    }
+    for (const existingKey of Object.keys(stringMomentumRef.current)) {
+      if (!nextKeySet.has(existingKey)) {
+        delete stringMomentumRef.current[existingKey];
+      }
+    }
+    if (stringSwipeRef.current && !nextKeySet.has(stringSwipeRef.current.dayKey)) {
+      stringSwipeRef.current = null;
+    }
+
+    if (transition.mode) {
+      transitionSeqRef.current += 1;
+      activeTransitionRef.current = {
+        ...transition,
+        id: transitionSeqRef.current,
+        prevGranularity: prevSnapshot.granularity,
+        nextGranularity: zoomMetrics.granularity,
+        prevColumns: prevSnapshot.columns,
+        prevColumnWidthPx: prevSnapshot.columnWidthPx,
+        prevCardHeightPx: prevSnapshot.cardHeightPx,
+        prevCardSlotHeightPx: prevSnapshot.cardSlotHeightPx,
+        prevCardScale: prevSnapshot.cardScale,
+        prevPhases: prevPhasesSnapshot,
+      };
+    } else {
+      activeTransitionRef.current = null;
+    }
+  } else if (
+    activeTransitionRef.current &&
+    prevSnapshot.columns !== columns
+  ) {
+    // Keep active FLIP/ghost deltas aligned if spacingMode or intra-granularity zoom changes mid-transition
+    const updatedTransition = computeStringGranularityTransition(
+      activeTransitionRef.current.prevColumns,
+      columns,
+      activeTransitionRef.current.prevGranularity,
+      zoomMetrics.granularity
+    );
+    activeTransitionRef.current = {
+      ...activeTransitionRef.current,
+      enteringByKey: updatedTransition.enteringByKey,
+      exitingGhosts: updatedTransition.exitingGhosts,
+    };
+  }
+
+  // Ensure every active column has a deterministic initial phase before rendering
+  columns.forEach((col, idx) => {
+    if (columnPhasesRef.current[col.dayKey] === undefined) {
+      columnPhasesRef.current[col.dayKey] = (idx * 23) % 72;
+    }
+  });
+
+  prevGranularityRef.current = {
+    photos,
+    granularity: zoomMetrics.granularity,
+    columns,
+    columnWidthPx: zoomMetrics.columnWidthPx,
+    cardHeightPx: zoomMetrics.cardHeightPx,
+    cardSlotHeightPx: zoomMetrics.cardSlotHeightPx,
+    cardScale: zoomMetrics.cardScale,
+  };
+
+  const activeTransition = activeTransitionRef.current;
+  const activeTransitionId = activeTransition?.id ?? 0;
+
+  // Auto-clear the merge/unmerge transition & ghost strings layer after STRING_MERGE_TRANSITION_MS
+  useEffect(() => {
+    if (!activeTransitionId) return;
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current);
+    }
+    transitionTimerRef.current = window.setTimeout(() => {
+      if (activeTransitionRef.current?.id === activeTransitionId) {
+        activeTransitionRef.current = null;
+        setFrameTick((t) => (t + 1) % 1000000);
+      }
+      transitionTimerRef.current = null;
+    }, STRING_MERGE_TRANSITION_MS);
+
+    return () => {
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+    };
+  }, [activeTransitionId]);
 
   const applySpeedMultiplier = useCallback((rawValue: number) => {
     if (!Number.isFinite(rawValue)) return;
@@ -187,17 +383,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     hasUserPannedRef.current = false;
   }, [photos]);
 
-  // Initialize deterministic staggered starting phase per column so strings feel alive immediately
-  // while keeping photo #1 at the top of each column on initial load, and prune stale hover keys on granularity merge
+  // Prune stale hover keys when active column keys change across granularity transitions
   useEffect(() => {
-    const activeDayKeys = new Set<string>();
-    columns.forEach((col, idx) => {
-      activeDayKeys.add(col.dayKey);
-      if (columnPhasesRef.current[col.dayKey] === undefined) {
-        columnPhasesRef.current[col.dayKey] = (idx * 23) % 72;
-      }
-    });
-
+    const activeDayKeys = new Set(columns.map((c) => c.dayKey));
     if (hoveredDayKeyRef.current && !activeDayKeys.has(hoveredDayKeyRef.current)) {
       hoveredDayKeyRef.current = null;
       hoveredPhotoIdRef.current = null;
@@ -213,6 +401,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   // Helper to activate fast-forward ('forward' at bottom end) or fast-backward ('backward' at top end)
   const activateStringEndHover = useCallback(
     (col: DayColumnGroup, direction: Exclude<StringEndHoverDirection, null>) => {
+      if (
+        stringSwipeRef.current?.active ||
+        Math.abs(stringMomentumRef.current[col.dayKey] || 0) >= 1.5
+      ) {
+        return;
+      }
       const prev = hoveredStringEndRef.current;
       const isNewActivation = !prev || prev.dayKey !== col.dayKey || prev.direction !== direction;
       hoveredStringEndRef.current = { dayKey: col.dayKey, direction };
@@ -244,20 +438,46 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     setHoveredStringEnd((curr) => (curr && curr.dayKey === dayKey ? null : curr));
   }, []);
 
-  // Unified requestAnimationFrame loop for downward infinite flowing strings (and fast-forward/backward on end hover)
+  // Unified requestAnimationFrame loop for downward infinite flowing strings (plus end hover and smooth swipe momentum decay)
   useEffect(() => {
-    if (!isFlowing && !hoveredStringEnd) return;
+    if (!isFlowing && !hoveredStringEnd && !hasActiveMomentum) return;
     let rafId = 0;
     let lastTime = performance.now();
 
     const tick = (now: number) => {
-      const dt = Math.min(0.064, Math.max(0, (now - lastTime) / 1000));
+      const rawDt = (now - lastTime) / 1000;
+      const dt = rawDt > 0.001 ? Math.min(0.12, rawDt) : 0.05;
       lastTime = now;
 
       const currentCols = columnsRef.current;
       const currentSpeedMultiplier = speedMultiplierRef.current;
+      let stillHasMomentum = false;
 
       for (const col of currentCols) {
+        const rawBoost = stringMomentumRef.current[col.dayKey];
+        const currentBoost =
+          typeof rawBoost === 'number' && Number.isFinite(rawBoost) ? rawBoost : 0;
+        let nextBoost = 0;
+        if (Math.abs(currentBoost) >= 1.5) {
+          if (
+            stringSwipeRef.current?.active &&
+            stringSwipeRef.current.dayKey === col.dayKey
+          ) {
+            nextBoost = currentBoost;
+            stillHasMomentum = true;
+          } else {
+            nextBoost = decayStringSwipeMomentum(currentBoost, dt);
+            if (nextBoost === 0) {
+              delete stringMomentumRef.current[col.dayKey];
+            } else {
+              stringMomentumRef.current[col.dayKey] = nextBoost;
+              stillHasMomentum = true;
+            }
+          }
+        } else if (rawBoost !== undefined) {
+          delete stringMomentumRef.current[col.dayKey];
+        }
+
         const endDir =
           hoveredStringEndRef.current?.dayKey === col.dayKey
             ? hoveredStringEndRef.current.direction
@@ -267,9 +487,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           isColumnHovered: hoveredDayKeyRef.current === col.dayKey,
           isPhotoHovered: Boolean(hoveredPhotoIdRef.current),
           endHoverDirection: endDir,
+          swipeBoostPxPerSec: nextBoost,
         });
         const deltaPx = velocity * dt;
         columnPhasesRef.current[col.dayKey] = (columnPhasesRef.current[col.dayKey] || 0) + deltaPx;
+      }
+
+      if (!stillHasMomentum && Object.keys(stringMomentumRef.current).length === 0) {
+        setHasActiveMomentum(false);
       }
 
       setFrameTick((t) => (t + 1) % 1000000);
@@ -278,7 +503,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [isFlowing, hoveredStringEnd]);
+  }, [isFlowing, hoveredStringEnd, hasActiveMomentum]);
 
   // Center timeline on screen by default, and keep horizontal pan centered/clamped when columns merge or resize
   useEffect(() => {
@@ -320,6 +545,27 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
       defaultCols.length > 0
         ? defaultCols[defaultCols.length - 1].xOffsetPx + defaultMetrics.columnWidthPx
         : 0;
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = null;
+    }
+    activeTransitionRef.current = null;
+    stringMomentumRef.current = {};
+    stringSwipeRef.current = null;
+    setHasActiveMomentum(false);
+    columnPhasesRef.current = {};
+    defaultCols.forEach((col, idx) => {
+      columnPhasesRef.current[col.dayKey] = (idx * 16) % 48;
+    });
+    prevGranularityRef.current = {
+      photos,
+      granularity: defaultMetrics.granularity,
+      columns: defaultCols,
+      columnWidthPx: defaultMetrics.columnWidthPx,
+      cardHeightPx: defaultMetrics.cardHeightPx,
+      cardSlotHeightPx: defaultMetrics.cardSlotHeightPx,
+      cardScale: defaultMetrics.cardScale,
+    };
     hasUserPannedRef.current = false;
     speedMultiplierRef.current = 1;
     if (speedSliderRef.current) {
@@ -332,9 +578,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     setPan({
       x: computeCenteredTimelinePanX(defaultWidth, viewportSize.width),
       y: 0,
-    });
-    defaultCols.forEach((col, idx) => {
-      columnPhasesRef.current[col.dayKey] = (idx * 16) % 48;
     });
     setFrameTick((t) => (t + 1) % 1000000);
   }, [photos, onChangeSpacingMode, viewportSize.width]);
@@ -375,8 +618,25 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     return () => el.removeEventListener('wheel', onWheel);
   }, [zoom, totalTimelineWidth, viewportSize.width]);
 
+  // Ensure releasing the pointer outside the timeline canvas ends any active string swipe or canvas drag
+  useEffect(() => {
+    const onWindowPointerEnd = () => {
+      if (stringSwipeRef.current) {
+        stringSwipeRef.current = null;
+      }
+      setIsDragging((dragging) => (dragging ? false : dragging));
+    };
+    window.addEventListener('pointerup', onWindowPointerEnd);
+    window.addEventListener('pointercancel', onWindowPointerEnd);
+    return () => {
+      window.removeEventListener('pointerup', onWindowPointerEnd);
+      window.removeEventListener('pointercancel', onWindowPointerEnd);
+    };
+  }, []);
+
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    dragStartRef.current.moved = false;
     const target = e.target as HTMLElement;
     if (target.closest('[data-no-drag="true"]')) return;
 
@@ -389,6 +649,53 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const swipe = stringSwipeRef.current;
+    if (swipe) {
+      const totalDx = e.clientX - swipe.startX;
+      const totalDy = e.clientY - swipe.startY;
+      const dy = e.clientY - swipe.lastY;
+      const now = performance.now();
+      const elapsedMs = Math.max(8, now - swipe.lastTime);
+
+      if (swipe.active || (Math.abs(totalDy) > 4 && Math.abs(totalDy) >= Math.abs(totalDx))) {
+        swipe.active = true;
+        swipe.lastY = e.clientY;
+        swipe.lastTime = now;
+        dragStartRef.current.moved = true;
+        if (isDragging) {
+          setIsDragging(false);
+        }
+        if (hoveredDayKeyRef.current === swipe.dayKey) {
+          hoveredDayKeyRef.current = null;
+          hoveredPhotoIdRef.current = null;
+          setHoveredDayKey(null);
+          setHoveredPhotoId(null);
+        }
+        clearStringEndHover(swipe.dayKey);
+
+        if (dy !== 0) {
+          columnPhasesRef.current[swipe.dayKey] =
+            (columnPhasesRef.current[swipe.dayKey] || 0) + dy * 1.25;
+          const prevBoost = stringMomentumRef.current[swipe.dayKey] || 0;
+          const boost = computeSwipeVelocityBoost(dy, elapsedMs, prevBoost);
+          if (boost !== 0) {
+            stringMomentumRef.current[swipe.dayKey] = boost;
+            setHasActiveMomentum(true);
+          } else {
+            delete stringMomentumRef.current[swipe.dayKey];
+          }
+          setFrameTick((t) => (t + 1) % 1000000);
+        }
+        return;
+      }
+
+      if (!swipe.active && Math.abs(totalDx) > 6 && Math.abs(totalDx) > Math.abs(totalDy)) {
+        stringSwipeRef.current = null;
+      } else {
+        return;
+      }
+    }
+
     if (!isDragging) return;
     const dx = e.clientX - dragStartRef.current.x;
     if (Math.abs(dx) > 4) {
@@ -406,6 +713,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   };
 
   const handlePointerUp = () => {
+    stringSwipeRef.current = null;
     setIsDragging(false);
   };
 
@@ -437,15 +745,21 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   return (
     <div
       ref={containerRef}
+      onPointerDownCapture={(e) => {
+        if (e.button === 0) {
+          dragStartRef.current.moved = false;
+        }
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      className={`relative h-full w-full overflow-hidden select-none ${
+      className={`relative h-full w-full overflow-hidden select-none touch-none ${
         isDragging ? 'cursor-grabbing' : 'cursor-grab'
       }`}
       data-testid="timeline-canvas"
       data-granularity={zoomMetrics.granularity}
+      data-transition-mode={activeTransition?.mode ?? 'steady'}
     >
       {/* Subtle Ambient Background Grid & Glow (moves horizontally only) */}
       <div
@@ -695,6 +1009,123 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             height: stringViewportHeight + zoomMetrics.cardHeightPx + 36,
           }}
         >
+          {/* Outgoing Converging/Splitting Ghost Strings Layer during Merge/Unmerge Transitions */}
+          {activeTransition && activeTransition.mode && activeTransition.exitingGhosts.length > 0 && (
+            <div
+              className="pointer-events-none absolute inset-0 z-0 overflow-visible"
+              data-testid="timeline-merge-ghosts-layer"
+              data-transition-mode={activeTransition.mode}
+            >
+              {activeTransition.exitingGhosts.map((ghost) => {
+                const ghostPhase = activeTransition.prevPhases[ghost.col.dayKey] ?? 0;
+                const { items: ghostVirtualItems } = buildVirtualStringItems(
+                  ghost.col.photos,
+                  stringViewportHeight,
+                  activeTransition.prevCardSlotHeightPx
+                );
+                const visibleGhostCards = ghostVirtualItems
+                  .map((vItem) => ({
+                    vItem,
+                    state: computeFlowingCardState(
+                      vItem.virtualIndex,
+                      ghostVirtualItems.length,
+                      ghostPhase,
+                      stringViewportHeight,
+                      activeTransition.prevCardSlotHeightPx
+                    ),
+                  }))
+                  .filter((entry) => entry.state.isVisible)
+                  .slice(0, 4);
+                return (
+                  <div
+                    key={`ghost-${activeTransition.id}-${ghost.col.dayKey}`}
+                    className="timeline-ghost-converge pointer-events-none absolute top-0 flex flex-col items-center"
+                    style={
+                      {
+                        left: ghost.col.xOffsetPx,
+                        width: activeTransition.prevColumnWidthPx,
+                        '--ghost-delta-x': `${ghost.deltaXPx}px`,
+                      } as React.CSSProperties
+                    }
+                    data-testid={`timeline-merge-ghost-${ghost.col.dayKey}`}
+                    data-ghost-key={ghost.col.dayKey}
+                    data-target-key={ghost.targetKey}
+                    data-delta-x={ghost.deltaXPx}
+                  >
+                    {/* Ghost Time Card Preview */}
+                    <div
+                      style={{
+                        width: activeTransition.prevColumnWidthPx,
+                        height: activeTransition.prevCardHeightPx,
+                        borderRadius: `${Math.round(12 * activeTransition.prevCardScale)}px`,
+                        padding: `${Math.round(8 * activeTransition.prevCardScale)}px ${Math.round(12 * activeTransition.prevCardScale)}px`,
+                      }}
+                      className="flex shrink-0 items-center justify-between overflow-hidden border border-sky-400/50 bg-slate-900/75 shadow-[0_0_20px_rgba(56,189,248,0.22)]"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="truncate font-semibold tracking-tight text-sky-100/90"
+                            style={{
+                              fontSize: `${Number((12 * activeTransition.prevCardScale).toFixed(2))}px`,
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            {ghost.col.displayDate}
+                          </span>
+                          <span className="shrink-0 rounded bg-sky-500/20 px-1.5 py-0.5 font-mono text-[10px] font-medium text-sky-300">
+                            {ghost.col.photos.length}
+                          </span>
+                        </div>
+                        <div
+                          className="truncate text-slate-400/80"
+                          style={{
+                            fontSize: `${Number((10 * activeTransition.prevCardScale).toFixed(2))}px`,
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {ghost.col.weekday}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Ghost Top Anchor Node (matches active column spacing) */}
+                    <div className="relative z-10 my-1 flex flex-col items-center">
+                      <div className="h-2.5 w-2.5 rounded-full border border-sky-400/70 bg-sky-400/25 shadow-[0_0_8px_#38bdf8]" />
+                    </div>
+
+                    {/* Ghost Vertical String Filament & Preview Cards */}
+                    <div
+                      className="relative w-full overflow-hidden"
+                      style={{ height: stringViewportHeight }}
+                    >
+                      <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[2px] bg-gradient-to-b from-sky-400/45 via-sky-300/75 to-indigo-400/20 shadow-[0_0_16px_rgba(56,189,248,0.65)]" />
+                      {visibleGhostCards.map(({ vItem, state }) => (
+                        <div
+                          key={`ghost-photo-${ghost.col.dayKey}-v${vItem.virtualIndex}-${vItem.photo.id}`}
+                          className="absolute left-2 right-2 overflow-hidden rounded-xl border border-sky-400/40 bg-slate-900/65"
+                          style={{
+                            height: Math.max(88, activeTransition.prevCardSlotHeightPx - 16),
+                            transform: `translate3d(0, ${state.y}px, 0) scale(${state.scale})`,
+                            opacity: Number((state.opacity * 0.85).toFixed(3)),
+                          }}
+                        >
+                          <img
+                            src={vItem.photo.url}
+                            alt={vItem.photo.fileName}
+                            loading="lazy"
+                            draggable={false}
+                            className="h-full w-full object-cover opacity-75"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {columns.map((col, colIndex) => {
             const phaseOffset = columnPhasesRef.current[col.dayKey] || 0;
             const { items: virtualItems } = buildVirtualStringItems(
@@ -704,17 +1135,19 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             );
             const activeEndDirection =
               hoveredStringEnd?.dayKey === col.dayKey ? hoveredStringEnd.direction : null;
+            const activeSwipeBoost = stringMomentumRef.current[col.dayKey] || 0;
             const effectiveSpeed = Number((col.speedPxPerSec * speedMultiplier).toFixed(1));
             const activeVelocity = computeStringFlowVelocity(col.speedPxPerSec, speedMultiplier, {
               isFlowing,
               isColumnHovered: hoveredDayKey === col.dayKey,
               isPhotoHovered: Boolean(hoveredPhotoId),
               endHoverDirection: activeEndDirection,
+              swipeBoostPxPerSec: activeSwipeBoost,
             });
             const flowMode =
-              activeEndDirection === 'backward'
+              activeSwipeBoost <= -1.5 || activeEndDirection === 'backward'
                 ? 'fast-backward'
-                : activeEndDirection === 'forward'
+                : activeSwipeBoost >= 1.5 || activeEndDirection === 'forward'
                   ? 'fast-forward'
                   : hoveredDayKey === col.dayKey
                     ? 'slow'
@@ -732,6 +1165,19 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             const gapWidth = prevCol
               ? col.xOffsetPx - (prevCol.xOffsetPx + zoomMetrics.columnWidthPx)
               : 0;
+
+            const enteringInfo = activeTransition?.enteringByKey[col.dayKey];
+            const mergeDeltaXPx = enteringInfo?.deltaXPx ?? 0;
+            const mergeSourceCount = enteringInfo?.mergedCount ?? 1;
+            const transitionMode = activeTransition?.mode ?? 'steady';
+            const columnEnterAnimClass =
+              transitionMode === 'merge'
+                ? 'timeline-column-merge-enter'
+                : transitionMode === 'unmerge'
+                  ? 'timeline-column-unmerge-enter'
+                  : '';
+            const timeCardMergeGlowClass =
+              transitionMode === 'merge' ? 'timeline-merge-card-pulse' : '';
 
             return (
               <React.Fragment key={col.dayKey}>
@@ -752,11 +1198,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 )}
 
                 <div
-                  className="absolute top-0 flex flex-col items-center transition-[left,width] duration-300 ease-out"
-                  style={{
-                    left: col.xOffsetPx,
-                    width: zoomMetrics.columnWidthPx,
-                  }}
+                  className={`absolute top-0 flex flex-col items-center transition-[left,width] duration-300 ease-out ${columnEnterAnimClass}`}
+                  style={
+                    {
+                      left: col.xOffsetPx,
+                      width: zoomMetrics.columnWidthPx,
+                      '--merge-delta-x': `${mergeDeltaXPx}px`,
+                    } as React.CSSProperties
+                  }
                   onMouseEnter={() => setHoveredDayKey(col.dayKey)}
                   onMouseLeave={() => {
                     setHoveredDayKey(null);
@@ -766,11 +1215,15 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                   data-testid={`timeline-day-column-${col.dayKey}`}
                   data-day-key={col.dayKey}
                   data-granularity={zoomMetrics.granularity}
+                  data-transition-mode={transitionMode}
+                  data-merge-delta-x={mergeDeltaXPx}
+                  data-merge-source-count={mergeSourceCount}
                   data-card-slot-height={zoomMetrics.cardSlotHeightPx}
                   data-speed={effectiveSpeed}
                   data-base-speed={col.speedPxPerSec}
                   data-flow-mode={flowMode}
                   data-flow-velocity={Number(activeVelocity.toFixed(2))}
+                  data-swipe-boost={Number(activeSwipeBoost.toFixed(2))}
                   data-phase={Number(phaseOffset.toFixed(2))}
                 >
                   {/* Column Time Card on top of the string (resizes natively in place without blurry transform: scale) */}
@@ -786,7 +1239,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       borderRadius: `${Math.round(12 * zoomMetrics.cardScale)}px`,
                       padding: `${Math.round(8 * zoomMetrics.cardScale)}px ${Math.round(12 * zoomMetrics.cardScale)}px`,
                     }}
-                    className={`group relative z-10 flex shrink-0 items-center justify-between overflow-hidden border backdrop-blur-md transition-all duration-300 ease-out ${
+                    className={`group relative z-10 flex shrink-0 items-center justify-between overflow-hidden border backdrop-blur-md transition-all duration-300 ease-out ${timeCardMergeGlowClass} ${
                       allSelectedInDay
                         ? 'border-sky-400/80 bg-sky-950/80 shadow-[0_0_20px_rgba(56,189,248,0.25)]'
                         : someSelectedInDay
@@ -836,9 +1289,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         <span>•</span>
                         <span
                           className={`shrink-0 font-mono ${
-                            activeEndDirection === 'backward'
+                            flowMode === 'fast-backward'
                               ? 'text-amber-300 font-semibold'
-                              : activeEndDirection === 'forward'
+                              : flowMode === 'fast-forward'
                                 ? 'text-sky-300 font-semibold'
                                 : !isFlowing
                                   ? 'text-amber-400/80'
@@ -847,9 +1300,9 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           title="String flow speed"
                           data-testid={`timeline-speed-label-${col.dayKey}`}
                         >
-                          {activeEndDirection === 'backward'
+                          {flowMode === 'fast-backward'
                             ? `↑↑ ${Math.abs(Math.round(activeVelocity))}px/s`
-                            : activeEndDirection === 'forward'
+                            : flowMode === 'fast-forward'
                               ? `↓↓ ${Math.abs(Math.round(activeVelocity))}px/s`
                               : !isFlowing
                                 ? '⏸ 0px/s'
@@ -923,7 +1376,23 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.96) 11%, rgba(0,0,0,0.96) 89%, transparent 100%)',
                     }}
                     data-testid={`timeline-string-viewport-${col.dayKey}`}
+                    onPointerDown={(e) => {
+                      if (e.button !== 0) return;
+                      if ((e.target as HTMLElement).closest('button')) return;
+                      dragStartRef.current.moved = false;
+                      stringSwipeRef.current = {
+                        dayKey: col.dayKey,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        lastY: e.clientY,
+                        lastTime: performance.now(),
+                        active: false,
+                      };
+                    }}
                     onMouseMove={(e) => {
+                      if (stringSwipeRef.current?.active || Math.abs(activeSwipeBoost) >= 1.5) {
+                        return;
+                      }
                       const rect = e.currentTarget.getBoundingClientRect();
                       const offsetY = e.clientY - rect.top;
                       const dir = resolveStringEndHoverDirection(
@@ -1031,7 +1500,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                           onMouseEnter={() => setHoveredPhotoId(photo.id)}
                           onMouseLeave={() => setHoveredPhotoId(null)}
                           onClick={(e) => {
-                            if (dragStartRef.current.moved) return;
+                            if (dragStartRef.current.moved) {
+                              dragStartRef.current.moved = false;
+                              return;
+                            }
                             if (e.shiftKey || e.metaKey || e.ctrlKey) {
                               onToggleSelect(photo.id, e);
                             } else {

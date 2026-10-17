@@ -25,6 +25,9 @@ import {
   computeCenteredTimelinePanX,
   computeFlowingCardState,
   computeStringFlowVelocity,
+  computeStringGranularityTransition,
+  computeSwipeVelocityBoost,
+  decayStringSwipeMomentum,
   getTimelineZoomMetrics,
   resolveStringEndHoverDirection,
   resolveTimelineGranularity,
@@ -519,6 +522,79 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
     expect(boundaryWeeks[0].dayKey).toBe('2025-W01');
     expect(boundaryWeeks[0].displayDate).toBe('Dec 30, 2024 – Jan 5, 2025');
     expect(boundaryWeeks[0].photos.map((p) => p.id)).toEqual(['b3', 'b2', 'b1']);
+
+    // 4. Verify computeStringGranularityTransition for merge (day -> week), unmerge (week -> day), and steady (day -> day)
+    expect(computeStringGranularityTransition(dayCols, dayCols, 'day', 'day').mode).toBeNull();
+    expect(computeStringGranularityTransition([], weekCols, 'day', 'week').mode).toBeNull();
+    expect(computeStringGranularityTransition(dayCols, [], 'day', 'week').mode).toBeNull();
+
+    const mergeTransition = computeStringGranularityTransition(dayCols, weekCols, 'day', 'week');
+    expect(mergeTransition.mode).toBe('merge');
+
+    // Multiple daily columns (2024-11-04 & 2024-11-05 -> 2024-W45; 2025-03-14 & 2025-03-15 -> 2025-W11) coalesce
+    const mergedWeek45 = mergeTransition.enteringByKey['2024-W45'];
+    expect(mergedWeek45).toBeDefined();
+    expect(mergedWeek45.sourceKeys).toEqual(['2024-11-04', '2024-11-05']);
+    expect(mergedWeek45.mergedCount).toBe(2);
+    const expectedCentroidW45 = Math.round((dayCols[0].xOffsetPx + dayCols[1].xOffsetPx) / 2);
+    expect(mergedWeek45.fromXOffsetPx).toBe(expectedCentroidW45);
+    expect(mergedWeek45.deltaXPx).toBe(expectedCentroidW45 - weekCols[0].xOffsetPx);
+    expect(mergedWeek45.deltaXPx).toBeGreaterThan(0);
+
+    const mergedWeek11 = mergeTransition.enteringByKey['2025-W11'];
+    expect(mergedWeek11).toBeDefined();
+    expect(mergedWeek11.sourceKeys).toEqual(['2025-03-14', '2025-03-15']);
+    expect(mergedWeek11.mergedCount).toBe(2);
+    const expectedCentroidW11 = Math.round((dayCols[3].xOffsetPx + dayCols[4].xOffsetPx) / 2);
+    expect(mergedWeek11.fromXOffsetPx).toBe(expectedCentroidW11);
+    expect(mergedWeek11.deltaXPx).toBe(expectedCentroidW11 - weekCols[2].xOffsetPx);
+    expect(mergedWeek11.deltaXPx).toBeGreaterThan(0);
+
+    // Every previous daily column emits an ExitingGhostColumn pointing to its merged week column
+    expect(mergeTransition.exitingGhosts.length).toBe(dayCols.length);
+    const ghostDay0 = mergeTransition.exitingGhosts.find((g) => g.col.dayKey === '2024-11-04')!;
+    expect(ghostDay0.targetKey).toBe('2024-W45');
+    expect(ghostDay0.targetXOffsetPx).toBe(weekCols[0].xOffsetPx);
+    expect(ghostDay0.deltaXPx).toBe(0);
+
+    const ghostDay1 = mergeTransition.exitingGhosts.find((g) => g.col.dayKey === '2024-11-05')!;
+    expect(ghostDay1.targetKey).toBe('2024-W45');
+    expect(ghostDay1.targetXOffsetPx).toBe(weekCols[0].xOffsetPx);
+    expect(ghostDay1.deltaXPx).toBe(weekCols[0].xOffsetPx - dayCols[1].xOffsetPx);
+    expect(ghostDay1.deltaXPx).toBeLessThan(0);
+
+    // Unmerge (week -> day) maps each split daily column back to its parent weekly column's xOffsetPx
+    const unmergeTransition = computeStringGranularityTransition(weekCols, dayCols, 'week', 'day');
+    expect(unmergeTransition.mode).toBe('unmerge');
+
+    for (const dayKey of ['2025-03-14', '2025-03-15']) {
+      const splitDay = unmergeTransition.enteringByKey[dayKey];
+      expect(splitDay).toBeDefined();
+      expect(splitDay.sourceKeys).toEqual(['2025-W11']);
+      expect(splitDay.fromXOffsetPx).toBe(weekCols[2].xOffsetPx);
+      const targetDayCol = dayCols.find((c) => c.dayKey === dayKey)!;
+      expect(splitDay.deltaXPx).toBe(weekCols[2].xOffsetPx - targetDayCol.xOffsetPx);
+    }
+    expect(unmergeTransition.enteringByKey['2025-03-15'].deltaXPx).toBeLessThan(0);
+    expect(unmergeTransition.exitingGhosts.length).toBe(weekCols.length);
+
+    // Photo-count-weighted centroid when merging columns have unequal photo counts (3 photos vs 1 photo)
+    const weightedPhotos = [
+      { id: 'w1', timestamp: '2025-03-10T09:00:00.000Z', fileName: 'w1.jpg' },
+      { id: 'w2', timestamp: '2025-03-10T10:00:00.000Z', fileName: 'w2.jpg' },
+      { id: 'w3', timestamp: '2025-03-10T11:00:00.000Z', fileName: 'w3.jpg' },
+      { id: 'w4', timestamp: '2025-03-12T15:00:00.000Z', fileName: 'w4.jpg' },
+    ] as any[];
+    const wDayCols = buildTimelineDayColumns(weightedPhotos, 'compact', 256, 'day');
+    const wWeekCols = buildTimelineDayColumns(weightedPhotos, 'compact', 256, 'week');
+    const wMerge = computeStringGranularityTransition(wDayCols, wWeekCols, 'day', 'week');
+    const expectedWeightedFromX = Math.round(
+      (wDayCols[0].xOffsetPx * 3 + wDayCols[1].xOffsetPx * 1) / 4
+    );
+    expect(wMerge.enteringByKey['2025-W11'].fromXOffsetPx).toBe(expectedWeightedFromX);
+    expect(wMerge.enteringByKey['2025-W11'].fromXOffsetPx).toBeLessThan(
+      Math.round((wDayCols[0].xOffsetPx + wDayCols[1].xOffsetPx) / 2)
+    );
   });
 
   it('enforces horizontal-only panning, keeps time cards pinned at the top while resizing natively on zoom without blurry scale transform, right-aligns view options, and merges strings in TimelineView DOM', async () => {
@@ -566,6 +642,7 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
     const container = dom.window.document.getElementById('root')!;
     const root = createRoot(container);
 
+    const openedPhotoIds: string[] = [];
     const StatefulTimelineWrapper: React.FC = () => {
       const [mode, setMode] = React.useState<'compact' | 'proportional'>('compact');
       return React.createElement(TimelineView, {
@@ -573,7 +650,9 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
         selectedIds: new Set<string>(),
         onToggleSelect: () => {},
         onSelectGroup: () => {},
-        onOpenPhoto: () => {},
+        onOpenPhoto: (photo) => {
+          openedPhotoIds.push(photo.id);
+        },
         spacingMode: mode,
         onChangeSpacingMode: setMode,
       });
@@ -827,17 +906,123 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
       // 4. Zooming out further triggers automatic merging: Daily (9) -> Weekly (7) -> Monthly (7) -> Yearly (2)
       await act(async () => {
         zoomOutBtn.click(); // 0.70 (still 'day')
+      });
+      expect(canvas.getAttribute('data-granularity')).toBe('day');
+      expect(canvas.getAttribute('data-transition-mode')).toBe('steady');
+      expect(container.querySelector('[data-testid="timeline-merge-ghosts-layer"]')).toBeNull();
+
+      const day14BeforeMerge = container.querySelector(
+        '[data-testid="timeline-day-column-2025-03-14"]'
+      ) as HTMLElement;
+      const day15BeforeMerge = container.querySelector(
+        '[data-testid="timeline-day-column-2025-03-15"]'
+      ) as HTMLElement;
+      const day14PhaseBefore = Number(day14BeforeMerge.getAttribute('data-phase'));
+      const day15PhaseBefore = Number(day15BeforeMerge.getAttribute('data-phase'));
+      const expectedMergedPhase = Number(((day14PhaseBefore + day15PhaseBefore) / 2).toFixed(2));
+
+      await act(async () => {
         zoomOutBtn.click(); // 0.55 -> merges to 'week'
       });
       expect(canvas.getAttribute('data-granularity')).toBe('week');
+      expect(canvas.getAttribute('data-transition-mode')).toBe('merge');
       const weekDomCols = container.querySelectorAll('[data-testid^="timeline-day-column-"]');
       expect(weekDomCols.length).toBe(7);
       expect(transformLayer.getAttribute('data-pan-y')).toBe('0');
+
+      const mergedWeekColEl = container.querySelector(
+        '[data-testid="timeline-day-column-2025-W11"]'
+      ) as HTMLElement;
+      expect(mergedWeekColEl).toBeTruthy();
+      expect(mergedWeekColEl.getAttribute('data-transition-mode')).toBe('merge');
+      expect(mergedWeekColEl.className).toContain('timeline-column-merge-enter');
+      expect(Number(mergedWeekColEl.getAttribute('data-merge-source-count'))).toBe(2);
+      expect(Number(mergedWeekColEl.getAttribute('data-merge-delta-x'))).toBeGreaterThan(0);
+      expect(mergedWeekColEl.style.getPropertyValue('--merge-delta-x')).toContain('px');
+      // Phase continuity on merge: 2025-W11 inherits average phase of 2025-03-14 and 2025-03-15 on the first frame
+      expect(Number(mergedWeekColEl.getAttribute('data-phase'))).toBeCloseTo(expectedMergedPhase, 1);
+
+      const ghostsLayer = container.querySelector(
+        '[data-testid="timeline-merge-ghosts-layer"]'
+      ) as HTMLElement;
+      expect(ghostsLayer).toBeTruthy();
+      const ghostCols = container.querySelectorAll('[data-testid^="timeline-merge-ghost-"]');
+      expect(ghostCols.length).toBe(9);
+      const ghost2025_03_15 = container.querySelector(
+        '[data-testid="timeline-merge-ghost-2025-03-15"]'
+      ) as HTMLElement;
+      expect(ghost2025_03_15).toBeTruthy();
+      expect(ghost2025_03_15.className).toContain('timeline-ghost-converge');
+      expect(ghost2025_03_15.getAttribute('data-target-key')).toBe('2025-W11');
+      expect(Number(ghost2025_03_15.getAttribute('data-delta-x'))).toBeLessThan(0);
+
+      // Advance phase while in 'week' mode via bottom-end fast-forward on 2025-W11
+      const week11BottomEnd = container.querySelector(
+        '[data-testid="string-bottom-end-2025-W11"]'
+      ) as HTMLElement;
+      await act(async () => {
+        week11BottomEnd.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+      });
+      const week11AdvancedPhase = Number(mergedWeekColEl.getAttribute('data-phase'));
+      expect(week11AdvancedPhase).toBeGreaterThan(expectedMergedPhase + 2);
+
+      // Toggling spacingMode ('compact' -> 'proportional' -> 'compact') mid-transition keeps ghost & column deltas synced
+      const propBtnMid = container.querySelector('[data-testid="spacing-proportional-btn"]') as HTMLElement;
+      const compactBtnMid = container.querySelector('[data-testid="spacing-compact-btn"]') as HTMLElement;
+      const ghostLaterDay = container.querySelector(
+        '[data-testid="timeline-merge-ghost-2025-05-20"]'
+      ) as HTMLElement;
+      const compactGhostDelta = Number(ghostLaterDay.getAttribute('data-delta-x'));
+      await act(async () => {
+        propBtnMid.click();
+      });
+      const propGhostDelta = Number(ghostLaterDay.getAttribute('data-delta-x'));
+      expect(propGhostDelta).not.toBe(compactGhostDelta);
+      await act(async () => {
+        compactBtnMid.click();
+      });
+      expect(Number(ghostLaterDay.getAttribute('data-delta-x'))).toBe(compactGhostDelta);
+
+      // Zooming back in across threshold (0.55 'week' -> 0.70 'day') triggers 'unmerge' fan-out transition
+      // and inherits the updated 2025-W11 phase into both unmerged child daily columns
+      await act(async () => {
+        zoomInBtn.click(); // 0.70 -> unmerges back to 'day'
+      });
+      expect(canvas.getAttribute('data-granularity')).toBe('day');
+      expect(canvas.getAttribute('data-transition-mode')).toBe('unmerge');
+      const unmergedDay14El = container.querySelector(
+        '[data-testid="timeline-day-column-2025-03-14"]'
+      ) as HTMLElement;
+      const unmergedDayColEl = container.querySelector(
+        '[data-testid="timeline-day-column-2025-03-15"]'
+      ) as HTMLElement;
+      expect(unmergedDayColEl.getAttribute('data-transition-mode')).toBe('unmerge');
+      expect(unmergedDayColEl.className).toContain('timeline-column-unmerge-enter');
+      expect(Number(unmergedDayColEl.getAttribute('data-merge-delta-x'))).toBeLessThan(0);
+      expect(Number(unmergedDay14El.getAttribute('data-phase'))).toBeCloseTo(week11AdvancedPhase, 1);
+      expect(Number(unmergedDayColEl.getAttribute('data-phase'))).toBeCloseTo(week11AdvancedPhase, 1);
+      expect(
+        container.querySelectorAll('[data-testid^="timeline-merge-ghost-"]').length
+      ).toBe(7);
+
+      // Verify transition auto-clears back to 'steady' and removes ghost layer after 380ms timeout
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 410));
+      });
+      expect(canvas.getAttribute('data-transition-mode')).toBe('steady');
+      expect(container.querySelector('[data-testid="timeline-merge-ghosts-layer"]')).toBeNull();
+
+      // Zoom back out through week -> month -> year
+      await act(async () => {
+        zoomOutBtn.click(); // 0.55 -> merges to 'week'
+      });
+      expect(canvas.getAttribute('data-granularity')).toBe('week');
 
       await act(async () => {
         zoomOutBtn.click(); // 0.40 -> merges to 'month'
       });
       expect(canvas.getAttribute('data-granularity')).toBe('month');
+      expect(canvas.getAttribute('data-transition-mode')).toBe('merge');
       const monthDomCols = container.querySelectorAll('[data-testid^="timeline-day-column-"]');
       expect(monthDomCols.length).toBe(7);
       expect(monthDomCols[0].getAttribute('data-day-key')).toBe('2025-03');
@@ -846,6 +1031,7 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
         zoomOutBtn.click(); // 0.25 -> merges to 'year'
       });
       expect(canvas.getAttribute('data-granularity')).toBe('year');
+      expect(canvas.getAttribute('data-transition-mode')).toBe('merge');
       const yearDomCols = container.querySelectorAll('[data-testid^="timeline-day-column-"]');
       expect(yearDomCols.length).toBe(2);
       expect(yearDomCols[0].getAttribute('data-day-key')).toBe('2025');
@@ -858,12 +1044,14 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
       expect(yearlyPanX).toBe(computeCenteredTimelinePanX(yearlyTimelineWidth, 1280));
       expect(yearlyPanX).toBeGreaterThan(400);
 
-      // 5. Reset view restores 100% zoom, Daily strings (9 columns), centered pan.x, and pan.y = 0
+      // 5. Reset view restores 100% zoom, Daily strings (9 columns), centered pan.x, pan.y = 0, and clears active transition
       const resetBtn = container.querySelector('[data-testid="timeline-reset-view"]') as HTMLElement;
       await act(async () => {
         resetBtn.click();
       });
       expect(canvas.getAttribute('data-granularity')).toBe('day');
+      expect(canvas.getAttribute('data-transition-mode')).toBe('steady');
+      expect(container.querySelector('[data-testid="timeline-merge-ghosts-layer"]')).toBeNull();
       expect(container.querySelectorAll('[data-testid^="timeline-day-column-"]').length).toBe(9);
       expect(Number(transformLayer.getAttribute('data-pan-x'))).toBe(expectedCenteredPanX);
       expect(transformLayer.getAttribute('data-pan-y')).toBe('0');
@@ -1027,6 +1215,262 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
       expect(Number(transformLayer.getAttribute('data-zoom'))).toBe(1);
       expect(Number(transformLayer.getAttribute('data-pan-x'))).toBe(expectedCenteredPanX);
 
+      // 8b. Vertical drag/swipe on a string fast-forwards (downward swipe) or fast-backwards (upward swipe) with smooth decay back to normal speed
+      const stringViewport14 = container.querySelector(
+        '[data-testid="timeline-string-viewport-2025-03-14"]'
+      ) as HTMLElement;
+      const photoCardIn14 = stringViewport14.querySelector(
+        '[data-testid^="timeline-photo-card-"]'
+      ) as HTMLElement;
+      expect(stringViewport14).toBeTruthy();
+      expect(photoCardIn14).toBeTruthy();
+      expect(Number(colAfterReset.getAttribute('data-swipe-boost'))).toBe(0);
+
+      // Multi-step downward vertical drag/swipe starting with small initial move (+3px Y, +2px X) followed by (+90px Y, +2px X) on string 2025-03-14
+      const phaseBeforeDownSwipe = Number(colAfterReset.getAttribute('data-phase'));
+      await act(async () => {
+        stringViewport14.dispatchEvent(
+          new dom.window.MouseEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 200,
+            clientY: 200,
+          })
+        );
+      });
+      await act(async () => {
+        canvas.dispatchEvent(
+          new dom.window.MouseEvent('pointermove', {
+            bubbles: true,
+            button: 0,
+            clientX: 202,
+            clientY: 203,
+          })
+        );
+      });
+      // Even during the sub-threshold disambiguation step (dy=3, dx=2), horizontal canvas pan must NOT drift
+      expect(Number(transformLayer.getAttribute('data-pan-x'))).toBe(expectedCenteredPanX);
+      await act(async () => {
+        canvas.dispatchEvent(
+          new dom.window.MouseEvent('pointermove', {
+            bubbles: true,
+            button: 0,
+            clientX: 202,
+            clientY: 290,
+          })
+        );
+      });
+      await act(async () => {
+        canvas.dispatchEvent(
+          new dom.window.MouseEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+          })
+        );
+      });
+
+      // Horizontal canvas pan must remain unchanged during a vertical string swipe
+      expect(Number(transformLayer.getAttribute('data-pan-x'))).toBe(expectedCenteredPanX);
+      const phaseAfterDownSwipe = Number(colAfterReset.getAttribute('data-phase'));
+      const boostAfterDownSwipe = Number(colAfterReset.getAttribute('data-swipe-boost'));
+      const velocityAfterDownSwipe = Number(colAfterReset.getAttribute('data-flow-velocity'));
+      expect(phaseAfterDownSwipe).toBeGreaterThanOrEqual(phaseBeforeDownSwipe + 85);
+      expect(boostAfterDownSwipe).toBeGreaterThan(150);
+      expect(velocityAfterDownSwipe).toBeCloseTo(baseSpeed + boostAfterDownSwipe, 1);
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('fast-forward');
+      expect(speedLabel.textContent).toContain('↓↓');
+
+      // Step 1 animation frame -> momentum boost decays smoothly (still positive, strictly less than initial boost)
+      let simTime = performance.now() + 80;
+      await act(async () => {
+        latestRafCallback?.(simTime);
+      });
+      const boostFrame1 = Number(colAfterReset.getAttribute('data-swipe-boost'));
+      const velocityFrame1 = Number(colAfterReset.getAttribute('data-flow-velocity'));
+      const phaseFrame1 = Number(colAfterReset.getAttribute('data-phase'));
+      expect(boostFrame1).toBeGreaterThan(0);
+      expect(boostFrame1).toBeLessThan(boostAfterDownSwipe);
+      expect(velocityFrame1).toBeCloseTo(baseSpeed + boostFrame1, 1);
+      expect(velocityFrame1).toBeGreaterThan(baseSpeed);
+      expect(velocityFrame1).toBeLessThan(velocityAfterDownSwipe);
+      expect(phaseFrame1).toBeGreaterThan(phaseAfterDownSwipe);
+
+      // Step subsequent animation frames -> momentum smoothly decays all the way back to 0 (normal speed)
+      await act(async () => {
+        for (let step = 0; step < 35; step++) {
+          simTime += 80;
+          latestRafCallback?.(simTime);
+        }
+      });
+      expect(Number(colAfterReset.getAttribute('data-swipe-boost'))).toBe(0);
+      expect(Number(colAfterReset.getAttribute('data-flow-velocity'))).toBe(baseSpeed);
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('normal');
+      expect(speedLabel.textContent).toBe(`↓ ${baseSpeed}px/s`);
+
+      // Upward vertical drag/swipe (-110px Y) initiated directly on a photo card, crossing string-bottom-end, and released on window:
+      // 1) Fast-backwards with negative momentum boost
+      // 2) Crossing string-bottom-end during swipe does NOT latch end-hover
+      // 3) Synthetic click upon swipe release does NOT open the photo modal
+      // 4) Subsequent intentional click on a photo card DOES open the photo modal
+      const phaseBeforeUpSwipe = Number(colAfterReset.getAttribute('data-phase'));
+      const bottomEndZone14 = container.querySelector(
+        '[data-testid="string-bottom-end-2025-03-14"]'
+      ) as HTMLElement;
+      const photoCardForSwipe = stringViewport14.querySelector(
+        '[data-testid^="timeline-photo-card-"]'
+      ) as HTMLElement;
+      expect(bottomEndZone14).toBeTruthy();
+      expect(photoCardForSwipe).toBeTruthy();
+      await act(async () => {
+        photoCardForSwipe.dispatchEvent(
+          new dom.window.MouseEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 200,
+            clientY: 360,
+          })
+        );
+      });
+      await act(async () => {
+        canvas.dispatchEvent(
+          new dom.window.MouseEvent('pointermove', {
+            bubbles: true,
+            button: 0,
+            clientX: 199,
+            clientY: 250,
+          })
+        );
+        // Simulate pointer crossing bottom end zone while swipe is active
+        bottomEndZone14.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+      });
+      await act(async () => {
+        // Release pointer on window (simulating release outside canvas) followed by synthetic click on photo card
+        dom.window.dispatchEvent(
+          new dom.window.MouseEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+          })
+        );
+        photoCardForSwipe.dispatchEvent(
+          new dom.window.MouseEvent('click', {
+            bubbles: true,
+            button: 0,
+          })
+        );
+      });
+      expect(openedPhotoIds.length).toBe(0);
+
+      const phaseAfterUpSwipe = Number(colAfterReset.getAttribute('data-phase'));
+      const boostAfterUpSwipe = Number(colAfterReset.getAttribute('data-swipe-boost'));
+      const velocityAfterUpSwipe = Number(colAfterReset.getAttribute('data-flow-velocity'));
+      expect(phaseAfterUpSwipe).toBeLessThanOrEqual(phaseBeforeUpSwipe - 105);
+      expect(boostAfterUpSwipe).toBeLessThan(-150);
+      expect(velocityAfterUpSwipe).toBeLessThan(0);
+      expect(velocityAfterUpSwipe).toBeCloseTo(baseSpeed + boostAfterUpSwipe, 1);
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('fast-backward');
+      expect(speedLabel.textContent).toContain('↑↑');
+
+      // Step 1 animation frame -> upward momentum decays smoothly toward 0 while still rewinding
+      simTime += 80;
+      await act(async () => {
+        latestRafCallback?.(simTime);
+      });
+      const upBoostFrame1 = Number(colAfterReset.getAttribute('data-swipe-boost'));
+      expect(upBoostFrame1).toBeLessThan(0);
+      expect(upBoostFrame1).toBeGreaterThan(boostAfterUpSwipe);
+
+      // Step remaining frames -> upward momentum finishes decaying smoothly (not stuck in bottom end fast-forward hover)
+      await act(async () => {
+        for (let step = 0; step < 35; step++) {
+          simTime += 80;
+          latestRafCallback?.(simTime);
+        }
+      });
+      expect(Number(colAfterReset.getAttribute('data-swipe-boost'))).toBe(0);
+      expect(colAfterReset.getAttribute('data-flow-mode')).not.toBe('fast-forward');
+      await act(async () => {
+        colAfterReset.dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true }));
+      });
+      expect(Number(colAfterReset.getAttribute('data-flow-velocity'))).toBe(baseSpeed);
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('normal');
+      expect(speedLabel.textContent).toBe(`↓ ${baseSpeed}px/s`);
+
+      // Subsequent intentional click on a visible photo card must open the photo normally
+      const photoCardForClick = stringViewport14.querySelector(
+        '[data-testid^="timeline-photo-card-"]'
+      ) as HTMLElement;
+      expect(photoCardForClick).toBeTruthy();
+      await act(async () => {
+        photoCardForClick.dispatchEvent(
+          new dom.window.MouseEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 200,
+            clientY: 260,
+          })
+        );
+        photoCardForClick.dispatchEvent(
+          new dom.window.MouseEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 200,
+            clientY: 260,
+          })
+        );
+        photoCardForClick.dispatchEvent(
+          new dom.window.MouseEvent('click', {
+            bubbles: true,
+            button: 0,
+          })
+        );
+      });
+      expect(openedPhotoIds.length).toBe(1);
+
+      // Swiping a string while global flow is paused temporarily fast-forwards and smoothly decays back to paused (0px/s)
+      await act(async () => {
+        toggleFlowBtn.click();
+      });
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('paused');
+      await act(async () => {
+        stringViewport14.dispatchEvent(
+          new dom.window.MouseEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 200,
+            clientY: 200,
+          })
+        );
+        canvas.dispatchEvent(
+          new dom.window.MouseEvent('pointermove', {
+            bubbles: true,
+            button: 0,
+            clientX: 200,
+            clientY: 280,
+          })
+        );
+        canvas.dispatchEvent(
+          new dom.window.MouseEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+          })
+        );
+      });
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('fast-forward');
+      expect(Number(colAfterReset.getAttribute('data-flow-velocity'))).toBeGreaterThan(100);
+      await act(async () => {
+        for (let step = 0; step < 35; step++) {
+          simTime += 80;
+          latestRafCallback?.(simTime);
+        }
+      });
+      expect(Number(colAfterReset.getAttribute('data-swipe-boost'))).toBe(0);
+      expect(Number(colAfterReset.getAttribute('data-flow-velocity'))).toBe(0);
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('paused');
+      await act(async () => {
+        toggleFlowBtn.click();
+      });
+      expect(colAfterReset.getAttribute('data-flow-mode')).toBe('normal');
+
       // 9. Wheel events (both vertical wheel zoom and horizontal trackpad scroll) never shift pan.y from 0
       await act(async () => {
         canvas.dispatchEvent(
@@ -1124,6 +1568,48 @@ describe('MyAlbum Full-Stack Verification Suite', () => {
         endHoverDirection: 'forward',
       })
     ).toBe(30 * FAST_STRING_FLOW_MULTIPLIER);
+
+    // 4. Vertical drag/swipe velocity boost and smooth exponential momentum decay
+    const downBoost = computeSwipeVelocityBoost(48, 32, 0);
+    const upBoost = computeSwipeVelocityBoost(-48, 32, 0);
+    expect(downBoost).toBeGreaterThan(200);
+    expect(upBoost).toBeLessThan(-200);
+    expect(upBoost).toBe(-downBoost);
+    expect(computeSwipeVelocityBoost(0, 32, 120)).toBe(120);
+    expect(computeSwipeVelocityBoost(0, 32, 1.0)).toBe(0);
+    expect(computeSwipeVelocityBoost(50000, 8, 0)).toBe(960);
+    expect(computeSwipeVelocityBoost(-50000, 8, 0)).toBe(-960);
+
+    //Swipe boost adds directly to steady velocity and overrides hover slowdown while active
+    expect(
+      computeStringFlowVelocity(baseSpeed, 1, {
+        isFlowing: true,
+        isColumnHovered: true,
+        isPhotoHovered: true,
+        endHoverDirection: null,
+        swipeBoostPxPerSec: 180,
+      })
+    ).toBe(210);
+    expect(
+      computeStringFlowVelocity(baseSpeed, 1, {
+        isFlowing: true,
+        isColumnHovered: true,
+        isPhotoHovered: false,
+        endHoverDirection: null,
+        swipeBoostPxPerSec: -180,
+      })
+    ).toBe(-150);
+
+    // Exponential decay reduces boost smoothly frame-over-frame and snaps cleanly to 0 below threshold
+    const d1 = decayStringSwipeMomentum(300, 0.1);
+    const d2 = decayStringSwipeMomentum(d1, 0.1);
+    expect(d1).toBeGreaterThan(0);
+    expect(d1).toBeLessThan(300);
+    expect(d2).toBeGreaterThan(0);
+    expect(d2).toBeLessThan(d1);
+    expect(decayStringSwipeMomentum(-300, 0.1)).toBe(-d1);
+    expect(decayStringSwipeMomentum(1.0, 0.1)).toBe(0);
+    expect(decayStringSwipeMomentum(Number.NaN, 0.1)).toBe(0);
 
     // Negative phase offsets (from rewinding/fast-backward) wrap cleanly in computeFlowingCardState
     const cardAtNegPhase = computeFlowingCardState(0, 6, -120, 640, 192);

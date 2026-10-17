@@ -531,9 +531,64 @@ export function resolveStringEndHoverDirection(
 }
 
 /**
+ * Smoothly decays a vertical swipe velocity boost back to 0 using exponential half-life decay.
+ * Clamps to 0 once the remaining boost magnitude drops below 1.5 px/s.
+ */
+export function decayStringSwipeMomentum(
+  currentBoostPxPerSec: number,
+  dtSec: number,
+  halfLifeSec = 0.28
+): number {
+  if (!Number.isFinite(currentBoostPxPerSec) || Math.abs(currentBoostPxPerSec) < 1.5) {
+    return 0;
+  }
+  if (!Number.isFinite(dtSec) || dtSec <= 0) {
+    return Number(currentBoostPxPerSec.toFixed(2));
+  }
+  const safeHalfLife = Number.isFinite(halfLifeSec) && halfLifeSec > 0.01 ? halfLifeSec : 0.28;
+  const nextBoost = currentBoostPxPerSec * Math.pow(0.5, dtSec / safeHalfLife);
+  if (!Number.isFinite(nextBoost) || Math.abs(nextBoost) < 1.5) {
+    return 0;
+  }
+  return Number(nextBoost.toFixed(2));
+}
+
+/**
+ * Computes a signed vertical velocity boost (px/sec) from a vertical drag/swipe delta.
+ * Positive values fast-forward downwards; negative values fast-backward upwards.
+ */
+export function computeSwipeVelocityBoost(
+  deltaYPx: number,
+  elapsedMs: number,
+  prevBoostPxPerSec = 0
+): number {
+  const safePrev =
+    Number.isFinite(prevBoostPxPerSec) && Math.abs(prevBoostPxPerSec) >= 1.5
+      ? Number(prevBoostPxPerSec.toFixed(2))
+      : 0;
+  if (!Number.isFinite(deltaYPx) || deltaYPx === 0) {
+    return safePrev;
+  }
+  const clampedElapsedMs = Number.isFinite(elapsedMs)
+    ? Math.max(8, Math.min(120, elapsedMs))
+    : 16;
+  const instantaneousBoost = (deltaYPx / clampedElapsedMs) * 1000 * 0.45;
+  const blended =
+    safePrev !== 0 && Math.sign(safePrev) === Math.sign(instantaneousBoost)
+      ? instantaneousBoost * 0.7 + safePrev * 0.3
+      : instantaneousBoost * 0.88 + safePrev * 0.12;
+  const clamped = Math.max(-960, Math.min(960, blended));
+  if (Math.abs(clamped) < 1.5) {
+    return 0;
+  }
+  return Number(clamped.toFixed(2));
+}
+
+/**
  * Computes the signed vertical flow velocity (px/sec) for a string.
  * Positive values flow downwards (forward); negative values flow upwards (backward/rewind).
  * Hovering the bottom end fast-forwards (+4.5x); hovering the top end fast-backwards (-4.5x).
+ * Dragging/swiping vertically applies a temporary velocity boost that decays smoothly back to steady speed.
  */
 export function computeStringFlowVelocity(
   baseSpeedPxPerSec: number,
@@ -543,8 +598,17 @@ export function computeStringFlowVelocity(
     isColumnHovered: boolean;
     isPhotoHovered: boolean;
     endHoverDirection: StringEndHoverDirection;
+    swipeBoostPxPerSec?: number;
   }
 ): number {
+  const swipeBoost =
+    typeof options.swipeBoostPxPerSec === 'number' && Number.isFinite(options.swipeBoostPxPerSec)
+      ? options.swipeBoostPxPerSec
+      : 0;
+  if (Math.abs(swipeBoost) >= 1.5) {
+    const steadyVelocity = options.isFlowing ? baseSpeedPxPerSec * speedMultiplier : 0;
+    return Number((steadyVelocity + swipeBoost).toFixed(2));
+  }
   if (options.endHoverDirection === 'forward') {
     return Number((baseSpeedPxPerSec * speedMultiplier * FAST_STRING_FLOW_MULTIPLIER).toFixed(2));
   }
@@ -560,4 +624,134 @@ export function computeStringFlowVelocity(
   }
   return Number((baseSpeedPxPerSec * speedMultiplier).toFixed(2));
 }
+
+export type StringTransitionMode = 'merge' | 'unmerge' | null;
+
+export interface EnteringColumnTransition {
+  fromXOffsetPx: number;
+  deltaXPx: number;
+  sourceKeys: string[];
+  mergedCount: number;
+}
+
+export interface ExitingGhostColumn {
+  col: DayColumnGroup;
+  targetXOffsetPx: number;
+  deltaXPx: number;
+  targetKey: string;
+}
+
+export interface StringGranularityTransition {
+  mode: StringTransitionMode;
+  enteringByKey: Record<string, EnteringColumnTransition>;
+  exitingGhosts: ExitingGhostColumn[];
+}
+
+const GRANULARITY_RANK: Record<TimelineGranularity, number> = {
+  day: 0,
+  week: 1,
+  month: 2,
+  year: 3,
+};
+
+function computeWeightedColumnCentroidX(cols: DayColumnGroup[], fallbackX: number): number {
+  if (cols.length === 0) return fallbackX;
+  let weightedSum = 0;
+  let totalWeight = 0;
+  for (const col of cols) {
+    const weight = Math.max(1, col.photos.length);
+    weightedSum += col.xOffsetPx * weight;
+    totalWeight += weight;
+  }
+  return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : fallbackX;
+}
+
+/**
+ * Computes horizontal FLIP & ghost convergence/fan-out transition metrics when
+ * zooming across timeline string granularity boundaries (day <-> week <-> month <-> year).
+ */
+export function computeStringGranularityTransition(
+  prevColumns: DayColumnGroup[],
+  nextColumns: DayColumnGroup[],
+  prevGranularity: TimelineGranularity,
+  nextGranularity: TimelineGranularity
+): StringGranularityTransition {
+  if (
+    prevGranularity === nextGranularity ||
+    prevColumns.length === 0 ||
+    nextColumns.length === 0
+  ) {
+    return {
+      mode: null,
+      enteringByKey: {},
+      exitingGhosts: [],
+    };
+  }
+
+  const prevRank = GRANULARITY_RANK[prevGranularity];
+  const nextRank = GRANULARITY_RANK[nextGranularity];
+  const mode: Exclude<StringTransitionMode, null> = nextRank > prevRank ? 'merge' : 'unmerge';
+
+  const prevPhotoIdSets = new Map<string, Set<string>>();
+  for (const prevCol of prevColumns) {
+    prevPhotoIdSets.set(
+      prevCol.dayKey,
+      new Set(prevCol.photos.map((p) => p.id))
+    );
+  }
+
+  const nextPhotoIdSets = new Map<string, Set<string>>();
+  for (const nextCol of nextColumns) {
+    nextPhotoIdSets.set(
+      nextCol.dayKey,
+      new Set(nextCol.photos.map((p) => p.id))
+    );
+  }
+
+  const enteringByKey: Record<string, EnteringColumnTransition> = {};
+  for (const nextCol of nextColumns) {
+    const nextIds = nextPhotoIdSets.get(nextCol.dayKey)!;
+    const matchingPrevCols = prevColumns.filter((prevCol) => {
+      for (const p of prevCol.photos) {
+        if (nextIds.has(p.id)) return true;
+      }
+      return false;
+    });
+
+    const fromXOffsetPx = computeWeightedColumnCentroidX(matchingPrevCols, nextCol.xOffsetPx);
+    const deltaXPx = Math.round(fromXOffsetPx - nextCol.xOffsetPx);
+    enteringByKey[nextCol.dayKey] = {
+      fromXOffsetPx,
+      deltaXPx,
+      sourceKeys: matchingPrevCols.map((c) => c.dayKey),
+      mergedCount: matchingPrevCols.length,
+    };
+  }
+
+  const exitingGhosts: ExitingGhostColumn[] = prevColumns.map((prevCol) => {
+    const prevIds = prevPhotoIdSets.get(prevCol.dayKey)!;
+    const matchingNextCols = nextColumns.filter((nextCol) => {
+      for (const p of nextCol.photos) {
+        if (prevIds.has(p.id)) return true;
+      }
+      return false;
+    });
+
+    const targetXOffsetPx = computeWeightedColumnCentroidX(matchingNextCols, prevCol.xOffsetPx);
+    const deltaXPx = Math.round(targetXOffsetPx - prevCol.xOffsetPx);
+    return {
+      col: prevCol,
+      targetXOffsetPx,
+      deltaXPx,
+      targetKey: matchingNextCols[0]?.dayKey ?? '',
+    };
+  });
+
+  return {
+    mode,
+    enteringByKey,
+    exitingGhosts,
+  };
+}
+
 
