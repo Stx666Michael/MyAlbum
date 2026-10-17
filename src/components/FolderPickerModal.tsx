@@ -88,7 +88,7 @@ export const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
               <FolderOpen className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-base font-semibold text-white">Open Photo Folder</h2>
+              <h2 className="text-base font-semibold text-slate-50">Open Photo Folder</h2>
               <p className="text-xs text-slate-400">
                 Scans the selected folder and all nested subfolders recursively
               </p>
@@ -147,7 +147,7 @@ export const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                     setIsLoading(false);
                   }
                 }}
-                className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-400 transition shadow"
+                className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-xs font-semibold text-on-accent hover:bg-sky-400 transition shadow"
                 data-testid="load-demo-album-btn"
               >
                 <Sparkles className="h-3.5 w-3.5" />
@@ -163,13 +163,13 @@ export const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
               value={manualPath}
               onChange={(e) => setManualPath(e.target.value)}
               placeholder="Enter or paste local folder path (e.g. C:\Users\User\Pictures)"
-              className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 font-mono text-xs text-white placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
+              className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 font-mono text-xs text-slate-50 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
               data-testid="folder-path-input"
             />
             <button
               type="submit"
               disabled={isLoading || !manualPath.trim()}
-              className="flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition"
+              className="flex items-center gap-1.5 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-on-accent hover:bg-emerald-400 disabled:opacity-50 transition"
               data-testid="scan-folder-submit-btn"
             >
               <Check className="h-4 w-4" />
@@ -205,7 +205,7 @@ export const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                 <button
                   type="button"
                   onClick={() => fetchBrowse(browseData.parentPath!)}
-                  className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1 text-xs font-medium text-slate-300 hover:border-slate-700 hover:text-white"
+                  className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1 text-xs font-medium text-slate-300 hover:border-slate-700 hover:text-slate-50"
                 >
                   <ArrowUp className="h-3.5 w-3.5" />
                   Up One Level

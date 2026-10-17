@@ -798,7 +798,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           onMouseLeave={() => setIsSettingsHovered(false)}
           className={`pointer-events-auto ml-auto flex items-center justify-end rounded-xl border backdrop-blur-md transition-all duration-300 ease-out ${
             isSettingsHovered
-              ? 'gap-2 border-slate-700/90 bg-slate-900/95 p-1.5 shadow-[0_12px_36px_rgba(2,6,23,0.85)]'
+              ? 'gap-2 border-slate-700/90 bg-slate-900/95 p-1.5 shadow-[0_12px_36px_var(--shadow-deep)]'
               : 'gap-0 border-slate-800/90 bg-slate-900/85 p-1 shadow-xl hover:border-sky-500/40'
           }`}
         >
@@ -956,7 +956,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
             className={`flex shrink-0 items-center justify-center rounded-lg py-1.5 text-xs font-medium transition-all duration-300 ${
               isSettingsHovered
                 ? 'gap-0 border border-sky-500/40 bg-sky-500/20 px-2 text-sky-300 shadow-sm'
-                : 'gap-1.5 border border-transparent px-2.5 text-slate-300 hover:text-white'
+                : 'gap-1.5 border border-transparent px-2.5 text-slate-300 hover:text-slate-50'
             }`}
           >
             <SlidersHorizontal
@@ -1328,7 +1328,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       }}
                       className={`flex shrink-0 items-center justify-center border transition-all duration-300 ease-out ${
                         allSelectedInDay
-                          ? 'border-sky-400 bg-sky-500 text-slate-950'
+                          ? 'border-sky-400 bg-sky-500 text-on-accent'
                           : 'border-slate-700 bg-slate-800/70 text-slate-400 hover:border-sky-400/60 hover:text-sky-300'
                       }`}
                       title={
@@ -1524,7 +1524,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                             className={`relative h-full w-full overflow-hidden rounded-xl border transition-all duration-200 ${
                               isSelected
                                 ? 'border-sky-400 ring-2 ring-sky-400/50 shadow-[0_8px_25px_rgba(56,189,248,0.3)]'
-                                : 'border-slate-700/80 bg-slate-900/90 hover:border-sky-400/60 hover:shadow-[0_10px_28px_rgba(15,23,42,0.85)]'
+                                : 'border-slate-700/80 bg-slate-900/90 hover:border-sky-400/60 hover:shadow-[0_10px_28px_var(--shadow-deep)]'
                             }`}
                           >
                             {/* Photo Thumbnail */}
@@ -1549,7 +1549,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                                 }}
                                 className={`flex h-6 w-6 items-center justify-center rounded-md border backdrop-blur-md transition ${
                                   isSelected
-                                    ? 'border-sky-300 bg-sky-500 text-slate-950 shadow-sm'
+                                    ? 'border-sky-300 bg-sky-500 text-on-accent shadow-sm'
                                     : 'border-white/30 bg-slate-950/55 text-transparent opacity-85 group-hover/card:opacity-100 hover:border-sky-300'
                                 }`}
                                 title={isSelected ? 'Deselect photo' : 'Select photo for batch edit'}
@@ -1561,7 +1561,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                               <div className="flex items-center gap-1">
                                 {photo.isEdited && (
                                   <span
-                                    className="flex items-center gap-0.5 rounded-full bg-amber-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-slate-950 shadow"
+                                    className="flex items-center gap-0.5 rounded-full bg-amber-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-on-accent shadow"
                                     title="Metadata edited in MyAlbum"
                                   >
                                     <Sparkles className="h-2.5 w-2.5" />
@@ -1577,7 +1577,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                             {/* Bottom Info Overlay: Time of day, filename & GPS pin indicator */}
                             <div className="absolute inset-x-2.5 bottom-2 flex items-end justify-between gap-1.5">
                               <div className="min-w-0">
-                                <div className="flex items-center gap-1 font-mono text-xs font-semibold text-white drop-shadow">
+                                <div className="flex items-center gap-1 font-mono text-xs font-semibold text-slate-50 drop-shadow">
                                   <Clock className="h-3 w-3 text-sky-400 shrink-0" />
                                   <span className="truncate">{cardTimeDisplay}</span>
                                 </div>

@@ -64,6 +64,11 @@
   - Camera make & model, lens model, focal length (`mm`), aperture (`f/`), shutter speed, ISO sensitivity, dimensions, file size, and relative subfolder path.
   - One-click shortcut to open the Batch Editor for the currently viewed photo.
 
+### 5. Light & Dark Themes (`src/utils/theme.ts`)
+- **Header Toggle**: A sun/moon button in the top bar switches the whole app between the default dark theme and a light theme.
+- **Remembered Choice**: The selected theme is saved in `localStorage` and applied before first paint, so a reload doesn't flash the other theme.
+- **Token-Based Palette**: Light mode overrides Tailwind's palette variables in `src/index.css`, so every view re-themes without per-component branches. Bright accent buttons keep dark labels in both themes. On the globe, the Dark Matter and Positron Light basemaps follow the app theme; choosing Voyager or Satellite keeps that basemap when the theme changes.
+
 ---
 
 ## 📸 Screenshots
@@ -76,35 +81,29 @@ Photos are grouped into vertical strings, newest first.
 
 ![Timeline overview with photos grouped into flowing vertical strings](docs/screenshots/01-timeline-overview.png)
 
-### Hover-Expandable Settings Bar
-
-Compact or proportional gaps, flow play/pause, speed multiplier, granularity badge, and zoom controls.
-
-![Timeline settings bar expanded on hover](docs/screenshots/02-timeline-settings.png)
-
 ### Multi-Granularity String Merging
 
 Zooming out merges daily strings into weekly strings, then monthly and yearly as you zoom further.
 
-![Zoomed-out timeline merging strings into weekly groups](docs/screenshots/03-timeline-zoom-merge.png)
+![Zoomed-out timeline merging strings into weekly groups](docs/screenshots/02-timeline-zoom-merge.png)
 
 ### Multi-Selection & Batch Actions
 
 Selected photos show a count, with Batch Time and Batch Location actions in the header.
 
-![Several photos selected with batch actions in the header](docs/screenshots/04-timeline-selection.png)
+![Several photos selected with batch actions in the header](docs/screenshots/03-timeline-selection.png)
 
 ### Batch Time Adjustment
 
 A live Before → After preview shows the new timestamps before anything is saved.
 
-![Batch time editor with a Before → After timestamp preview](docs/screenshots/05-batch-time-editor.png)
+![Batch time editor with a Before → After timestamp preview](docs/screenshots/04-batch-time-editor.png)
 
 ### Batch Location Adjustment
 
 Pick a city or landmark preset, the map picker, or exact latitude and longitude, then apply the location to every selected photo at once.
 
-![Batch location editor with a preset coordinate and location name](docs/screenshots/08-batch-location-editor.png)
+![Batch location editor with a preset coordinate and location name](docs/screenshots/05-batch-location-editor.png)
 
 ### Photo Lightbox & EXIF Inspector
 
@@ -122,7 +121,13 @@ Photos cluster by location, with count badges on the rotatable globe.
 
 Zooming into a cluster reveals each photo as its own pin at its exact GPS coordinates.
 
-![Flat map zoomed into Paris with individual photo pins at exact coordinates](docs/screenshots/09-location-map-pins.png)
+![Flat map zoomed into Paris with individual photo pins at exact coordinates](docs/screenshots/08-location-map-pins.png)
+
+### Light Theme
+
+The header button switches the whole app to a light palette, and the choice is remembered on reload.
+
+![Location globe in light theme with the Positron Light basemap](docs/screenshots/09-light-theme-globe.png)
 
 ---
 
@@ -156,15 +161,17 @@ MyAlbum/
 │   │   └── photo.ts           # Shared TypeScript interfaces for photos, EXIF, clusters & batch edits
 │   ├── utils/
 │   │   ├── mapClusters.ts     # Supercluster indexing, cluster querying & globe hemisphere visibility math
+│   │   ├── theme.ts           # Light/dark theme storage and root class helpers
 │   │   └── timelineMath.ts    # Timeline bucketing, zoom granularity merging, FLIP transitions & swipe decay math
 │   ├── App.tsx                # Top-level application shell, header bar, folder scanner & state management
-│   ├── index.css              # Tailwind CSS v4 imports & timeline merge/unmerge keyframe animations
+│   ├── index.css              # Tailwind CSS v4 imports, light/dark palette overrides & timeline keyframe animations
 │   └── main.tsx               # React 19 root mount
 ├── e2e/
 │   ├── fixtures.ts                   # Shared Playwright fixtures and on-screen element helpers
 │   ├── lightbox.spec.ts              # Lightbox opening, EXIF details & Escape to close
 │   ├── map.spec.ts                   # Globe clusters, flat-map photo pins & batch pin picker
 │   ├── selection-and-batch.spec.ts   # Day-string selection and batch location/time dialogs
+│   ├── theme.spec.ts                 # Light/dark toggle, reload persistence & light-mode globe rendering
 │   └── timeline.spec.ts              # String layout, settings bar, zoom merging & reset view
 ├── tests/
 │   ├── components/
@@ -178,10 +185,12 @@ MyAlbum/
 │   │   ├── demo-album.test.ts        # Built-in demo album generation and scanning
 │   │   ├── edge-cases.test.ts        # Empty inputs, coordinate clamping & API error paths
 │   │   └── exif-metadata.test.ts     # EXIF + GPS embedding and parsing round-trip
-│   └── timeline/
-│       ├── day-columns.test.ts       # Column ordering, spacing modes & loop transitions
-│       ├── granularity-merge.test.ts # Daily → weekly → monthly → yearly string merging
-│       └── pan-and-velocity.test.ts  # Centered pan clamping & string end fast-forward/rewind
+│   ├── timeline/
+│   │   ├── day-columns.test.ts       # Column ordering, spacing modes & loop transitions
+│   │   ├── granularity-merge.test.ts # Daily → weekly → monthly → yearly string merging
+│   │   └── pan-and-velocity.test.ts  # Centered pan clamping & string end fast-forward/rewind
+│   └── utils/
+│       └── theme.test.ts             # Theme storage defaults, persistence & root class
 ├── package.json
 ├── playwright.config.ts       # Playwright config for the end-to-end suite
 ├── tsconfig.json

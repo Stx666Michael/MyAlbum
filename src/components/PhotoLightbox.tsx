@@ -112,7 +112,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
                 {currentIndex + 1} / {photos.length}
               </span>
               <span className="text-slate-700">•</span>
-              <span className="font-medium text-white truncate max-w-xs">{photo.fileName}</span>
+              <span className="font-medium text-slate-50 truncate max-w-xs">{photo.fileName}</span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -121,7 +121,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
                 onClick={() => onToggleSelect(photo.id)}
                 className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition ${
                   isSelected
-                    ? 'border-sky-400 bg-sky-500 text-slate-950'
+                    ? 'border-sky-400 bg-sky-500 text-on-accent'
                     : 'border-slate-700 bg-slate-900/85 text-slate-200 hover:border-sky-400/50'
                 }`}
                 data-testid="lightbox-select-btn"
@@ -133,7 +133,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               <button
                 type="button"
                 onClick={() => setIsZoomed((z) => !z)}
-                className="rounded-xl border border-slate-800 bg-slate-900/85 p-2 text-slate-300 hover:bg-slate-800 hover:text-white transition"
+                className="rounded-xl border border-slate-800 bg-slate-900/85 p-2 text-slate-300 hover:bg-slate-800 hover:text-slate-50 transition"
                 title={isZoomed ? 'Fit to screen' : 'Zoom in'}
               >
                 {isZoomed ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -142,7 +142,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl border border-slate-800 bg-slate-900/85 p-2 text-slate-300 hover:bg-slate-800 hover:text-white transition"
+                className="rounded-xl border border-slate-800 bg-slate-900/85 p-2 text-slate-300 hover:bg-slate-800 hover:text-slate-50 transition"
                 title="Close (Esc)"
                 data-testid="lightbox-close-btn"
               >
@@ -193,7 +193,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               e.stopPropagation();
               setIsZoomed((z) => !z);
             }}
-            className={`relative max-h-[82vh] max-w-[90%] overflow-hidden rounded-2xl border border-slate-800/80 shadow-[0_25px_70px_rgba(0,0,0,0.85)] ${
+            className={`relative max-h-[82vh] max-w-[90%] overflow-hidden rounded-2xl border border-slate-800/80 shadow-[0_25px_70px_var(--shadow-deep)] ${
               isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
             }`}
           >
@@ -217,7 +217,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
         >
           <div className="border-b border-slate-800 px-6 py-5">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="truncate text-base font-semibold text-white" title={photo.fileName}>
+              <h2 className="truncate text-base font-semibold text-slate-50" title={photo.fileName}>
                 {photo.fileName}
               </h2>
               {photo.isEdited && (
@@ -258,7 +258,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               </div>
 
               <div>
-                <p className="text-sm font-semibold text-white">
+                <p className="text-sm font-semibold text-slate-50">
                   {formatWallClockDate(photo.timestamp)} at {timeLabel}
                 </p>
                 <p className="mt-0.5 font-mono text-xs text-slate-400">
@@ -310,7 +310,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               {photo.location ? (
                 <>
                   <div>
-                    <p className="text-sm font-semibold text-white">
+                    <p className="text-sm font-semibold text-slate-50">
                       {photo.location.name || 'Pinned Coordinates'}
                     </p>
                     <p className="mt-0.5 font-mono text-xs text-emerald-300/90">
@@ -325,7 +325,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
                       className="absolute inset-0 opacity-30"
                       style={{
                         backgroundImage:
-                          'linear-gradient(to right, #334155 1px, transparent 1px), linear-gradient(to bottom, #334155 1px, transparent 1px)',
+                          'linear-gradient(to right, var(--color-slate-700) 1px, transparent 1px), linear-gradient(to bottom, var(--color-slate-700) 1px, transparent 1px)',
                         backgroundSize: '18px 18px',
                       }}
                     />
@@ -370,7 +370,7 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({
               </div>
 
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-white">
+                <p className="text-sm font-semibold text-slate-50">
                   {photo.exif.make || photo.exif.model
                     ? `${photo.exif.make || ''} ${photo.exif.model || ''}`.trim()
                     : 'Digital Camera'}

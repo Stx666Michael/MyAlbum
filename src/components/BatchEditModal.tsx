@@ -201,7 +201,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
               <Sparkles className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-base font-semibold text-white">
+              <h2 className="text-base font-semibold text-slate-50">
                 Batch Edit Metadata ({selectedPhotos.length} Photo{selectedPhotos.length === 1 ? '' : 's'})
               </h2>
               <p className="text-xs text-slate-400">
@@ -260,7 +260,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                   onClick={() => setTimeMode('offset')}
                   className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
                     timeMode === 'offset'
-                      ? 'border-sky-400 bg-sky-500/15 text-white'
+                      ? 'border-sky-400 bg-sky-500/15 text-slate-50'
                       : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
                   }`}
                   data-testid="time-mode-offset-btn"
@@ -279,7 +279,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                   onClick={() => setTimeMode('exact')}
                   className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
                     timeMode === 'exact'
-                      ? 'border-sky-400 bg-sky-500/15 text-white'
+                      ? 'border-sky-400 bg-sky-500/15 text-slate-50'
                       : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
                   }`}
                   data-testid="time-mode-exact-btn"
@@ -298,7 +298,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                   onClick={() => setTimeMode('restore')}
                   className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
                     timeMode === 'restore'
-                      ? 'border-amber-400 bg-amber-500/15 text-white'
+                      ? 'border-amber-400 bg-amber-500/15 text-slate-50'
                       : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
                   }`}
                   data-testid="time-mode-restore-btn"
@@ -352,7 +352,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                         value={offsetDaysInput}
                         onChange={(e) => setOffsetDaysInput(e.target.value)}
                         onBlur={() => setOffsetDaysInput(String(offsetDays))}
-                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-50 focus:border-sky-500 focus:outline-none"
                         data-testid="offset-days-input"
                       />
                     </div>
@@ -364,7 +364,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                         value={offsetHoursInput}
                         onChange={(e) => setOffsetHoursInput(e.target.value)}
                         onBlur={() => setOffsetHoursInput(String(offsetHours))}
-                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-50 focus:border-sky-500 focus:outline-none"
                         data-testid="offset-hours-input"
                       />
                     </div>
@@ -376,7 +376,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                         value={offsetMinutesInput}
                         onChange={(e) => setOffsetMinutesInput(e.target.value)}
                         onBlur={() => setOffsetMinutesInput(String(offsetMinutes))}
-                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-50 focus:border-sky-500 focus:outline-none"
                         data-testid="offset-minutes-input"
                       />
                     </div>
@@ -394,7 +394,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                       type="datetime-local"
                       value={exactDateTime}
                       onChange={(e) => setExactDateTime(e.target.value)}
-                      className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-white focus:border-sky-500 focus:outline-none"
+                      className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-50 focus:border-sky-500 focus:outline-none"
                       data-testid="exact-datetime-input"
                     />
                   </div>
@@ -408,7 +408,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                       value={stepMinutesInput}
                       onChange={(e) => setStepMinutesInput(e.target.value)}
                       onBlur={() => setStepMinutesInput(String(stepMinutes))}
-                      className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-white focus:border-sky-500 focus:outline-none"
+                      className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-50 focus:border-sky-500 focus:outline-none"
                       data-testid="exact-step-minutes-input"
                     />
                     <p className="mt-1 text-[10px] text-slate-500">
@@ -451,7 +451,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                   onClick={() => setLocMode('set')}
                   className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
                     locMode === 'set'
-                      ? 'border-sky-400 bg-sky-500/15 text-white'
+                      ? 'border-sky-400 bg-sky-500/15 text-slate-50'
                       : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
                   }`}
                   data-testid="loc-mode-set-btn"
@@ -470,7 +470,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                   onClick={() => setLocMode('remove')}
                   className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
                     locMode === 'remove'
-                      ? 'border-rose-400 bg-rose-500/15 text-white'
+                      ? 'border-rose-400 bg-rose-500/15 text-slate-50'
                       : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
                   }`}
                   data-testid="loc-mode-remove-btn"
@@ -489,7 +489,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                   onClick={() => setLocMode('restore')}
                   className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition ${
                     locMode === 'restore'
-                      ? 'border-amber-400 bg-amber-500/15 text-white'
+                      ? 'border-amber-400 bg-amber-500/15 text-slate-50'
                       : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
                   }`}
                   data-testid="loc-mode-restore-btn"
@@ -553,7 +553,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                         step="0.0001"
                         value={latInput}
                         onChange={(e) => setLatInput(e.target.value)}
-                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-50 focus:border-sky-500 focus:outline-none"
                         data-testid="batch-lat-input"
                       />
                     </div>
@@ -564,7 +564,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                         step="0.0001"
                         value={lngInput}
                         onChange={(e) => setLngInput(e.target.value)}
-                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-sm text-slate-50 focus:border-sky-500 focus:outline-none"
                         data-testid="batch-lng-input"
                       />
                     </div>
@@ -575,7 +575,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
                         value={locNameInput}
                         onChange={(e) => setLocNameInput(e.target.value)}
                         placeholder="e.g. Shibuya, Tokyo"
-                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                        className="w-full rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-50 focus:border-sky-500 focus:outline-none"
                         data-testid="batch-locname-input"
                       />
                     </div>
@@ -604,7 +604,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex items-center gap-1.5 rounded-xl bg-sky-500 px-5 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-50 shadow-lg transition"
+              className="flex items-center gap-1.5 rounded-xl bg-sky-500 px-5 py-2 text-xs font-semibold text-on-accent hover:bg-sky-400 disabled:opacity-50 shadow-lg transition"
               data-testid="batch-apply-submit-btn"
             >
               <Check className="h-4 w-4" />

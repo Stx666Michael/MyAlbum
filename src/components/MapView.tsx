@@ -24,8 +24,13 @@ import {
   type MapClusterNode,
 } from '../utils/mapClusters.ts';
 import { formatWallClockDate } from '../utils/timelineMath.ts';
+import type { Theme } from '../utils/theme.ts';
 
 type MapStyleId = 'dark' | 'light' | 'voyager' | 'satellite';
+
+function basemapForTheme(theme: Theme): MapStyleId {
+  return theme === 'light' ? 'light' : 'dark';
+}
 
 const TILE_SOURCES: Record<
   MapStyleId,
@@ -133,6 +138,7 @@ interface MapViewProps {
   onBatchRemoveLocation: (photoIds: string[]) => Promise<void>;
   isPickingLocation?: boolean;
   onChangePickingLocation?: (picking: boolean) => void;
+  appTheme: Theme;
 }
 
 const PRESET_LOCATIONS: Array<{ name: string; lat: number; lng: number }> = [
@@ -155,6 +161,7 @@ export const MapView: React.FC<MapViewProps> = ({
   onBatchSetLocation,
   onBatchRemoveLocation,
   isPickingLocation = false,
+  appTheme,
   onChangePickingLocation,
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -164,7 +171,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const [viewport, setViewport] = useState({ width: 1280, height: 760 });
   const [center, setCenter] = useState<{ lng: number; lat: number }>({ lng: 18, lat: 24 });
   const [zoom, setZoom] = useState<number>(1.85);
-  const [styleId, setStyleId] = useState<MapStyleId>('dark');
+  const [styleId, setStyleId] = useState<MapStyleId>(() => basemapForTheme(appTheme));
   const [globeMode, setGlobeMode] = useState<boolean>(true);
   const [mapReady, setMapReady] = useState<boolean>(false);
   const appliedStyleRef = useRef<{ styleId: MapStyleId; globeMode: boolean }>({
@@ -318,6 +325,13 @@ export const MapView: React.FC<MapViewProps> = ({
       // ignore
     }
   }, [styleId, globeMode]);
+
+  // Dark and Light basemaps follow app theme changes; an explicit Voyager or Satellite pick is kept
+  useEffect(() => {
+    setStyleId((current) =>
+      current === 'voyager' || current === 'satellite' ? current : basemapForTheme(appTheme)
+    );
+  }, [appTheme]);
 
   // Build Supercluster spatial index
   const superclusterIndex = useMemo(() => createPhotoSupercluster(locatedPhotos, 62, 16), [locatedPhotos]);
@@ -526,17 +540,14 @@ export const MapView: React.FC<MapViewProps> = ({
                 ? {
                     width: globeRadiusPx * 2.2,
                     height: globeRadiusPx * 2.2,
-                    background:
-                      'radial-gradient(circle, rgba(56, 189, 248, 0.14) 0%, rgba(14, 116, 144, 0.06) 55%, rgba(2, 6, 23, 0) 75%)',
+                    background: 'var(--globe-halo)',
                   }
                 : {
                     width: globeRadiusPx * 2,
                     height: globeRadiusPx * 2,
-                    background:
-                      'radial-gradient(circle at 35% 30%, rgba(30, 58, 138, 0.55), rgba(15, 23, 42, 0.92) 70%, rgba(2, 6, 23, 0.98) 100%)',
-                    boxShadow:
-                      '0 0 90px 18px rgba(56, 189, 248, 0.18), inset 0 0 50px rgba(56, 189, 248, 0.22)',
-                    border: '1px solid rgba(56, 189, 248, 0.32)',
+                    background: 'var(--globe-body)',
+                    boxShadow: 'var(--globe-glow)',
+                    border: 'var(--globe-border)',
                   }
             }
           />
@@ -605,7 +616,7 @@ export const MapView: React.FC<MapViewProps> = ({
           }}
           className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition border ${
             isPinPicking
-              ? 'border-sky-400 bg-sky-500 text-slate-950 shadow-[0_0_15px_rgba(56,189,248,0.4)]'
+              ? 'border-sky-400 bg-sky-500 text-on-accent shadow-[0_0_15px_rgba(56,189,248,0.4)]'
               : 'border-slate-700 bg-slate-800/80 text-slate-200 hover:border-sky-400/50 hover:text-sky-300'
           }`}
           data-testid="map-pick-location-btn"
@@ -637,6 +648,7 @@ export const MapView: React.FC<MapViewProps> = ({
               key={id}
               type="button"
               onClick={() => setStyleId(id)}
+              aria-pressed={styleId === id}
               className={`rounded-md px-2 py-1 text-[11px] font-medium capitalize transition ${
                 styleId === id
                   ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
@@ -695,7 +707,7 @@ export const MapView: React.FC<MapViewProps> = ({
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500/20 text-sky-400">
                 <Crosshair className="h-4 w-4" />
               </span>
-              <span className="text-sm font-semibold text-white">
+              <span className="text-sm font-semibold text-slate-50">
                 Batch Set Location ({selectedIds.size} photo{selectedIds.size === 1 ? '' : 's'} selected)
               </span>
             </div>
@@ -786,7 +798,7 @@ export const MapView: React.FC<MapViewProps> = ({
               type="button"
               disabled={selectedIds.size === 0 || isSavingBatchLoc}
               onClick={handleApplyPickedLocation}
-              className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-40 transition shadow-lg"
+              className="flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-1.5 text-xs font-semibold text-on-accent hover:bg-sky-400 disabled:opacity-40 transition shadow-lg"
               data-testid="map-apply-location-btn"
             >
               <Check className="h-3.5 w-3.5" />
@@ -855,7 +867,7 @@ export const MapView: React.FC<MapViewProps> = ({
                     ))}
                     {/* Prominent Photo Count Badge */}
                     <span
-                      className="absolute -right-2 -top-2 z-10 flex h-6 min-w-[24px] items-center justify-center rounded-full bg-sky-500 px-1.5 font-mono text-xs font-bold text-slate-950 shadow-[0_0_12px_rgba(56,189,248,0.6)] border border-white/40"
+                      className="absolute -right-2 -top-2 z-10 flex h-6 min-w-[24px] items-center justify-center rounded-full bg-sky-500 px-1.5 font-mono text-xs font-bold text-on-accent shadow-[0_0_12px_rgba(56,189,248,0.6)] border border-white/40"
                       data-testid="cluster-count-badge"
                     >
                       {node.pointCount}
@@ -917,7 +929,7 @@ export const MapView: React.FC<MapViewProps> = ({
                     }}
                     className={`absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-md border transition ${
                       isSelected
-                        ? 'border-sky-300 bg-sky-500 text-slate-950'
+                        ? 'border-sky-300 bg-sky-500 text-on-accent'
                         : 'border-white/40 bg-slate-950/60 text-transparent opacity-0 group-hover:opacity-100 hover:border-sky-300'
                     }`}
                     title="Select photo for batch edit"
@@ -927,7 +939,7 @@ export const MapView: React.FC<MapViewProps> = ({
                   </button>
 
                   {photo.isLocationEdited && (
-                    <span className="absolute right-1 top-1 rounded-full bg-amber-500 p-0.5 text-slate-950">
+                    <span className="absolute right-1 top-1 rounded-full bg-amber-500 p-0.5 text-on-accent">
                       <Sparkles className="h-2.5 w-2.5" />
                     </span>
                   )}
@@ -957,7 +969,7 @@ export const MapView: React.FC<MapViewProps> = ({
               data-testid="map-picked-target-pin"
             >
               <div className="flex flex-col items-center">
-                <div className="rounded-full bg-sky-500 px-2.5 py-1 text-[10px] font-bold text-slate-950 shadow-lg whitespace-nowrap">
+                <div className="rounded-full bg-sky-500 px-2.5 py-1 text-[10px] font-bold text-on-accent shadow-lg whitespace-nowrap">
                   {pickedName}
                 </div>
                 <MapPin className="h-8 w-8 text-sky-400 drop-shadow-[0_0_12px_rgba(56,189,248,0.9)] -mt-1" />
@@ -976,7 +988,7 @@ export const MapView: React.FC<MapViewProps> = ({
         >
           <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
             <div>
-              <h3 className="text-xs font-semibold text-white">
+              <h3 className="text-xs font-semibold text-slate-50">
                 Cluster Photos ({activeCluster.allPhotos.length})
               </h3>
               <p className="text-[11px] text-slate-400 truncate max-w-[190px]">
@@ -1029,8 +1041,8 @@ export const MapView: React.FC<MapViewProps> = ({
                     }}
                     className={`absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-md border ${
                       isSelected
-                        ? 'border-sky-300 bg-sky-500 text-slate-950'
-                        : 'border-white/40 bg-slate-950/60 text-transparent group-hover:text-white/60'
+                        ? 'border-sky-300 bg-sky-500 text-on-accent'
+                        : 'border-white/40 bg-slate-950/60 text-transparent group-hover:text-slate-50/60'
                     }`}
                   >
                     <Check className="h-3 w-3" />
@@ -1056,7 +1068,7 @@ export const MapView: React.FC<MapViewProps> = ({
             <div className="flex items-center gap-2">
               <MapPinOff className="h-4 w-4 text-amber-400" />
               <div>
-                <h3 className="text-xs font-semibold text-white">
+                <h3 className="text-xs font-semibold text-slate-50">
                   Unlocated Photos ({unlocatedPhotos.length})
                 </h3>
                 <p className="text-[10px] text-slate-400">Select to assign a location on the map</p>
@@ -1126,8 +1138,8 @@ export const MapView: React.FC<MapViewProps> = ({
                     }}
                     className={`absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-md border ${
                       isSelected
-                        ? 'border-sky-300 bg-sky-500 text-slate-950'
-                        : 'border-white/40 bg-slate-950/60 text-transparent group-hover:text-white/60'
+                        ? 'border-sky-300 bg-sky-500 text-on-accent'
+                        : 'border-white/40 bg-slate-950/60 text-transparent group-hover:text-slate-50/60'
                     }`}
                     data-testid={`select-unlocated-${photo.id}`}
                   >

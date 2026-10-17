@@ -9,6 +9,8 @@ import {
   MapPin,
   Filter,
   Loader2,
+  Moon,
+  Sun,
   X,
 } from 'lucide-react';
 import type {
@@ -23,10 +25,20 @@ import { MapView } from './components/MapView.tsx';
 import { PhotoLightbox } from './components/PhotoLightbox.tsx';
 import { BatchEditModal } from './components/BatchEditModal.tsx';
 import { FolderPickerModal } from './components/FolderPickerModal.tsx';
+import { applyTheme, readStoredTheme, type Theme } from './utils/theme.ts';
 
 export const App: React.FC = () => {
   const [activeView, setActiveView] = useState<'timeline' | 'location'>('timeline');
   const [spacingMode, setSpacingMode] = useState<'compact' | 'proportional'>('compact');
+  const [theme, setTheme] = useState<Theme>(readStoredTheme);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => (current === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   const [scanData, setScanData] = useState<ScanResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -244,11 +256,11 @@ export const App: React.FC = () => {
         {/* Left: Brand + Active Folder & Subfolder Filter */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.35)]">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 text-on-accent shadow-[0_0_20px_rgba(56,189,248,0.35)]">
               <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-sm font-bold tracking-tight text-white">MyAlbum</h1>
+              <h1 className="text-sm font-bold tracking-tight text-slate-50">MyAlbum</h1>
               <p className="text-[10px] font-medium text-sky-400">Flowing Timeline & 3D Globe</p>
             </div>
           </div>
@@ -307,7 +319,7 @@ export const App: React.FC = () => {
               onClick={() => setActiveView('timeline')}
               className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition-all ${
                 activeView === 'timeline'
-                  ? 'bg-sky-500 text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.4)]'
+                  ? 'bg-sky-500 text-on-accent shadow-[0_0_20px_rgba(56,189,248,0.4)]'
                   : 'text-slate-400 hover:text-slate-100'
               }`}
               data-testid="switch-to-timeline-btn"
@@ -321,7 +333,7 @@ export const App: React.FC = () => {
               onClick={() => setActiveView('location')}
               className={`flex items-center gap-2 rounded-xl px-4 py-1.5 text-xs font-semibold transition-all ${
                 activeView === 'location'
-                  ? 'bg-sky-500 text-slate-950 shadow-[0_0_20px_rgba(56,189,248,0.4)]'
+                  ? 'bg-sky-500 text-on-accent shadow-[0_0_20px_rgba(56,189,248,0.4)]'
                   : 'text-slate-400 hover:text-slate-100'
               }`}
               data-testid="switch-to-location-btn"
@@ -332,7 +344,7 @@ export const App: React.FC = () => {
                 <span
                   className={`rounded-full px-1.5 py-0.2 font-mono text-[10px] ${
                     activeView === 'location'
-                      ? 'bg-slate-950/25 text-slate-950'
+                      ? 'bg-on-accent/25 text-on-accent'
                       : 'bg-slate-800 text-sky-300'
                   }`}
                 >
@@ -346,7 +358,7 @@ export const App: React.FC = () => {
             <button
               type="button"
               onClick={handleSelectAllVisible}
-              className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-700 hover:text-white transition"
+              className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-700 hover:text-slate-50 transition"
               data-testid="select-all-visible-btn"
             >
               {filteredPhotos.length > 0 && filteredPhotos.every((p) => selectedIds.has(p.id)) ? (
@@ -384,7 +396,7 @@ export const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setSelectedIds(new Set())}
-                  className="rounded-xl border border-slate-800 bg-slate-900 p-1.5 text-slate-400 hover:text-white transition"
+                  className="rounded-xl border border-slate-800 bg-slate-900 p-1.5 text-slate-400 hover:text-slate-50 transition"
                   title="Clear selection"
                   data-testid="clear-selection-btn"
                 >
@@ -393,6 +405,18 @@ export const App: React.FC = () => {
               </>
             )}
           </div>
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80 text-slate-300 transition hover:border-sky-500/40 hover:text-sky-300"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            data-testid="theme-toggle-btn"
+            data-theme={theme}
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
         </div>
       </header>
 
@@ -426,6 +450,7 @@ export const App: React.FC = () => {
             onBatchRemoveLocation={handleBatchRemoveLocationOnMap}
             isPickingLocation={isMapPinPicking}
             onChangePickingLocation={setIsMapPinPicking}
+            appTheme={theme}
           />
         )}
 
