@@ -66,6 +66,54 @@
 
 ---
 
+## 📸 Screenshots
+
+Captured at 1600×900 from the built-in demo album, which is generated on first launch.
+
+### Flowing Timeline View
+
+Photos are grouped into vertical strings, newest first.
+
+![Timeline overview with photos grouped into flowing vertical strings](docs/screenshots/01-timeline-overview.png)
+
+### Hover-Expandable Settings Bar
+
+Compact or proportional gaps, flow play/pause, speed multiplier, granularity badge, and zoom controls.
+
+![Timeline settings bar expanded on hover](docs/screenshots/02-timeline-settings.png)
+
+### Multi-Granularity String Merging
+
+Zooming out merges daily strings into weekly strings, then monthly and yearly as you zoom further.
+
+![Zoomed-out timeline merging strings into weekly groups](docs/screenshots/03-timeline-zoom-merge.png)
+
+### Multi-Selection & Batch Actions
+
+Selected photos show a count, with Batch Time and Batch Location actions in the header.
+
+![Several photos selected with batch actions in the header](docs/screenshots/04-timeline-selection.png)
+
+### Batch Time Adjustment
+
+A live Before → After preview shows the new timestamps before anything is saved.
+
+![Batch time editor with a Before → After timestamp preview](docs/screenshots/05-batch-time-editor.png)
+
+### Photo Lightbox & EXIF Inspector
+
+Capture time, GPS location, and camera settings for each photo.
+
+![Lightbox with the EXIF inspector sidebar](docs/screenshots/06-photo-lightbox.png)
+
+### 3D Globe & Clustered Map View
+
+Photos cluster by location, with count badges on the rotatable globe.
+
+![3D globe with clustered photo markers and counts](docs/screenshots/07-location-globe.png)
+
+---
+
 ## 🛠️ Tech Stack
 
 | Layer | Technologies |
