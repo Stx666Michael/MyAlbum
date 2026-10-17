@@ -100,6 +100,12 @@ A live Before → After preview shows the new timestamps before anything is save
 
 ![Batch time editor with a Before → After timestamp preview](docs/screenshots/05-batch-time-editor.png)
 
+### Batch Location Adjustment
+
+Pick a city or landmark preset, the map picker, or exact latitude and longitude, then apply the location to every selected photo at once.
+
+![Batch location editor with a preset coordinate and location name](docs/screenshots/08-batch-location-editor.png)
+
 ### Photo Lightbox & EXIF Inspector
 
 Capture time, GPS location, and camera settings for each photo.
@@ -112,6 +118,12 @@ Photos cluster by location, with count badges on the rotatable globe.
 
 ![3D globe with clustered photo markers and counts](docs/screenshots/07-location-globe.png)
 
+### Exact Per-Photo Locations
+
+Zooming into a cluster reveals each photo as its own pin at its exact GPS coordinates.
+
+![Flat map zoomed into Paris with individual photo pins at exact coordinates](docs/screenshots/09-location-map-pins.png)
+
 ---
 
 ## 🛠️ Tech Stack
@@ -121,7 +133,7 @@ Photos cluster by location, with count badges on the rotatable globe.
 | **Frontend** | React 19, TypeScript 5.7, Vite 6, Tailwind CSS v4, Framer Motion, Lucide React |
 | **Map & Spatial** | MapLibre GL JS v5 (`globe` projection), Supercluster |
 | **Backend & Media** | Node.js, Express 4 (integrated as Vite middleware + standalone server), `exifr` (EXIF/GPS parser), `sharp` (demo album generator) |
-| **Testing** | Vitest 3, Supertest, JSDOM |
+| **Testing** | Vitest 3, Supertest, JSDOM, Playwright (end-to-end) |
 
 ---
 
@@ -131,7 +143,7 @@ Photos cluster by location, with count badges on the rotatable globe.
 MyAlbum/
 ├── server/
 │   ├── app.ts                 # Express REST API, recursive folder scanner, EXIF parser & sidecar store
-│   ├── demoGenerator.ts       # Generates 28 sample photos across nested subfolders using Sharp
+│   ├── demoGenerator.ts       # Generates sample photos across nested subfolders using Sharp
 │   └── index.ts               # Standalone Express server entry point
 ├── src/
 │   ├── components/
@@ -148,11 +160,32 @@ MyAlbum/
 │   ├── App.tsx                # Top-level application shell, header bar, folder scanner & state management
 │   ├── index.css              # Tailwind CSS v4 imports & timeline merge/unmerge keyframe animations
 │   └── main.tsx               # React 19 root mount
+├── e2e/
+│   ├── fixtures.ts                   # Shared Playwright fixtures and on-screen element helpers
+│   ├── lightbox.spec.ts              # Lightbox opening, EXIF details & Escape to close
+│   ├── map.spec.ts                   # Globe clusters, flat-map photo pins & batch pin picker
+│   ├── selection-and-batch.spec.ts   # Day-string selection and batch location/time dialogs
+│   └── timeline.spec.ts              # String layout, settings bar, zoom merging & reset view
 ├── tests/
-│   └── myalbum.test.ts        # Full-stack API, timeline math, clustering & JSDOM component test suite
+│   ├── components/
+│   │   └── timeline-view.dom.test.ts # JSDOM tests for horizontal panning, pinned cards & merging
+│   ├── helpers/
+│   │   └── album-fixtures.ts         # Shared trip album fixture creation and cleanup
+│   ├── map/
+│   │   └── clusters.test.ts          # Globe clustering and high-zoom marker expansion
+│   ├── server/
+│   │   ├── batch-edits.test.ts       # Batch time & location edits with sidecar persistence
+│   │   ├── demo-album.test.ts        # Built-in demo album generation and scanning
+│   │   ├── edge-cases.test.ts        # Empty inputs, coordinate clamping & API error paths
+│   │   └── exif-metadata.test.ts     # EXIF + GPS embedding and parsing round-trip
+│   └── timeline/
+│       ├── day-columns.test.ts       # Column ordering, spacing modes & loop transitions
+│       ├── granularity-merge.test.ts # Daily → weekly → monthly → yearly string merging
+│       └── pan-and-velocity.test.ts  # Centered pan clamping & string end fast-forward/rewind
 ├── package.json
+├── playwright.config.ts       # Playwright config for the end-to-end suite
 ├── tsconfig.json
-└── vite.config.ts             # Vite config with integrated Express /api middleware
+└── vite.config.ts             # Vite config with integrated Express /api middleware and Vitest settings
 ```
 
 ---
@@ -177,8 +210,10 @@ Open **`http://localhost:5173`** in your browser.
 
 ### 3. Run the Automated Test Suite
 ```bash
-npm test
+npm test            # Vitest unit, API, and component tests
+npm run test:e2e    # Playwright end-to-end browser tests (starts the dev server automatically)
 ```
+The first end-to-end run needs the Chromium browser: `npx playwright install chromium`.
 
 ### 4. Build for Production
 ```bash
