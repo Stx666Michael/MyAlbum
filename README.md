@@ -205,7 +205,7 @@ npm install
 npm run dev
 ```
 Open **`http://localhost:5173`** in your browser.
-- On first launch, MyAlbum automatically generates and loads a **28-photo Demo Album** (`./sample-photos` with nested subfolders `2025-Spring-Japan/Kyoto`, `2025-Summer-Alps/Zermatt`, `2025-Autumn-Iceland`, `2026-Winter-NewYork`, and `Studio-Portraits-NoGPS`) so you can immediately explore both views.
+- On first launch, MyAlbum automatically generates and loads a **52-photo Demo Album** (`./sample-photos`, organized into trip folders such as `2025-03-Tokyo-Spring` and `2025-07-Iceland-Highlands`) so you can immediately explore both views.
 - Enter any local folder path in the top bar or click **Browse** to scan your own photo library (supports `.jpg`, `.jpeg`, `.png`, `.webp`, `.avif`, `.gif`, `.heic`, `.tiff`).
 
 ### 3. Run the Automated Test Suite
@@ -214,6 +214,8 @@ npm test            # Vitest unit, API, and component tests
 npm run test:e2e    # Playwright end-to-end browser tests (starts the dev server automatically)
 ```
 The first end-to-end run needs the Chromium browser: `npx playwright install chromium`.
+
+GitHub Actions runs both suites on every push and pull request (see `.github/workflows/test.yml`).
 
 ### 4. Build for Production
 ```bash
