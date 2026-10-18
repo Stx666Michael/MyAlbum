@@ -6,6 +6,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  Info,
   Route,
   Sparkles,
   X,
@@ -117,6 +118,115 @@ function formatFileSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
+
+interface TooltipProps {
+  text: string;
+  children?: React.ReactNode;
+  placement?: 'top' | 'bottom' | 'right' | 'left';
+  className?: string;
+}
+
+const Tooltip: React.FC<TooltipProps> = ({ text, children, placement = 'top', className = '' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const positionClasses = {
+    top: 'bottom-full left-0 mb-1.5',
+    bottom: 'top-full left-0 mt-1.5',
+    right: 'left-full top-1/2 -translate-y-1/2 ml-2',
+    left: 'right-full top-1/2 -translate-y-1/2 mr-2',
+  }[placement];
+
+  const handleMouseEnter = () => setIsOpen(true);
+  const handleMouseLeave = () => {
+    try {
+      if ((document.activeElement as HTMLElement)?.matches?.(':focus-visible')) {
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    setIsOpen(false);
+  };
+  const handleFocus = (e: React.FocusEvent) => {
+    try {
+      if (e.target.matches(':focus-visible')) {
+        setIsOpen(true);
+      }
+    } catch {
+      setIsOpen(true);
+    }
+  };
+  const handleBlur = () => setIsOpen(false);
+
+  if (children) {
+    return (
+      <div
+        className={`relative inline-flex ${className}`}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onClick={() => setIsOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            setIsOpen(false);
+          }
+        }}
+      >
+        {children}
+        <span
+          role="tooltip"
+          className={`pointer-events-none absolute ${positionClasses} z-50 ${
+            isOpen ? 'block' : 'hidden'
+          } w-64 rounded-lg border border-slate-700 bg-slate-900/95 p-2 text-left text-[11px] font-normal normal-case leading-relaxed text-slate-200 shadow-xl backdrop-blur-md`}
+        >
+          {text}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <span
+      className={`relative inline-flex items-center ${className}`}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsOpen(false);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          setIsOpen(false);
+        }
+      }}
+    >
+      <span
+        tabIndex={0}
+        aria-label={text}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        className="inline-flex cursor-help items-center justify-center text-slate-400 transition-colors hover:text-sky-400 focus:text-sky-400 focus:outline-none"
+      >
+        <Info className="h-3.5 w-3.5 shrink-0" />
+      </span>
+      <span
+        role="tooltip"
+        className={`pointer-events-none absolute ${positionClasses} z-50 ${
+          isOpen ? 'block' : 'hidden'
+        } w-64 rounded-lg border border-slate-700 bg-slate-900/95 p-2 text-left text-[11px] font-normal normal-case leading-relaxed text-slate-200 shadow-xl backdrop-blur-md`}
+      >
+        {text}
+      </span>
+    </span>
+  );
+};
+
 
 export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
   isOpen,
@@ -352,26 +462,42 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
           )}
 
           <section className="space-y-3">
-            <h3 className={SECTION_HEADING_CLASS}>Track</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className={SECTION_HEADING_CLASS}>Track</h3>
+              <Tooltip
+                text="GPS routes recorded on a phone, watch, or GPS logger (.gpx or Google Takeout / Timeline .json). Photos are matched to the track by their capture timestamp."
+                placement="bottom"
+              />
+            </div>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={openTrackBrowser}
-                className={SECONDARY_BUTTON_CLASS}
-                data-testid="auto-locate-track-choose"
+              <Tooltip
+                text="Browse your computer for a .gpx or .json (Google Takeout / Timeline) recorded GPS route to match photo capture times with coordinates."
+                placement="bottom"
               >
-                <FolderOpen className="h-3.5 w-3.5" />
-                Choose track file
-              </button>
-              <button
-                type="button"
-                onClick={() => chooseTrack({ type: 'sample' })}
-                className={SECONDARY_BUTTON_CLASS}
-                data-testid="auto-locate-sample-btn"
+                <button
+                  type="button"
+                  onClick={openTrackBrowser}
+                  className={SECONDARY_BUTTON_CLASS}
+                  data-testid="auto-locate-track-choose"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  Choose track file
+                </button>
+              </Tooltip>
+              <Tooltip
+                text="Load the built-in demo GPX track to test track-based geolocation on sample photos without needing your own GPS track file."
+                placement="bottom"
               >
-                <Route className="h-3.5 w-3.5" />
-                Use sample track
-              </button>
+                <button
+                  type="button"
+                  onClick={() => chooseTrack({ type: 'sample' })}
+                  className={SECONDARY_BUTTON_CLASS}
+                  data-testid="auto-locate-sample-btn"
+                >
+                  <Route className="h-3.5 w-3.5" />
+                  Use sample track
+                </button>
+              </Tooltip>
             </div>
 
             {trackSource ? (
@@ -487,7 +613,10 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
             <h3 className={SECTION_HEADING_CLASS}>Time</h3>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className={FIELD_LABEL_CLASS}>Match window (±)</span>
+                <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
+                  <span>Match window (±)</span>
+                  <Tooltip text="Maximum allowable time difference between photo capture and GPS track or companion points. Interpolates position if between points within the window." />
+                </span>
                 <select
                   value={windowMinutes}
                   onChange={(e) => setWindowMinutes(Number(e.target.value) as AutoLocateWindowMinutes)}
@@ -504,7 +633,10 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
 
               <div>
                 <label className="block">
-                  <span className={FIELD_LABEL_CLASS}>UTC offset (±HH:MM)</span>
+                  <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
+                    <span>UTC offset (±HH:MM)</span>
+                    <Tooltip text="Timezone difference from UTC (e.g. +09:00 for Tokyo, -04:00 for New York). Used for photos without an EXIF offset, or for all photos when EXIF offset is off." />
+                  </span>
                   <input
                     type="text"
                     value={utcOffsetInput}
@@ -515,13 +647,9 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
                     data-testid="auto-locate-utc-offset"
                   />
                 </label>
-                {utcOffsetMinutes === null ? (
+                {utcOffsetMinutes === null && (
                   <p className="mt-1 text-[11px] text-rose-300" data-testid="auto-locate-utc-offset-error">
                     Enter an offset like +09:00, between -14:00 and +14:00.
-                  </p>
-                ) : (
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Used for photos without an EXIF offset, or for all photos when the option below is off.
                   </p>
                 )}
               </div>
@@ -534,12 +662,16 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
                   className={CHECKBOX_CLASS}
                   data-testid="auto-locate-exif-offset"
                 />
-                Use each photo&apos;s EXIF offset when present
+                <span>Use each photo&apos;s EXIF offset when present</span>
+                <Tooltip text="Uses timezone offset tags (OffsetTimeOriginal) embedded in smartphone or camera EXIF. Falls back to manual UTC offset when missing." />
               </label>
 
               <div>
                 <label className="block">
-                  <span className={FIELD_LABEL_CLASS}>Clock drift (minutes)</span>
+                  <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-400">
+                    <span>Clock drift (minutes)</span>
+                    <Tooltip text="Compensates for an inaccurate camera clock. Positive if the camera clock was ahead of the track clock, negative if behind. Applied to unlocated photos only." />
+                  </span>
                   <input
                     type="number"
                     min={-MAX_DRIFT_MINUTES}
@@ -552,9 +684,6 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
                     data-testid="auto-locate-drift"
                   />
                 </label>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Positive if the camera clock runs ahead of the track clock. Applied to unlocated photos only.
-                </p>
                 {driftMinutes === null && (
                   <p className="mt-1 text-[11px] text-rose-300" data-testid="auto-locate-drift-error">
                     Enter whole minutes from -720 to 720.
@@ -574,7 +703,8 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
                 className={CHECKBOX_CLASS}
                 data-testid="auto-locate-companion"
               />
-              Companion photos
+              <span>Companion photos</span>
+              <Tooltip text="Estimates location from nearby located photos in the same album taken within 2 hours and 100 km." />
             </label>
             <label className={CHECKBOX_LABEL_CLASS}>
               <input
@@ -584,7 +714,8 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
                 className={CHECKBOX_CLASS}
                 data-testid="auto-locate-gazetteer"
               />
-              Folder and file place names (offline)
+              <span>Folder and file place names (offline)</span>
+              <Tooltip text="Matches city, landmark, region, and country names found in folder and file names against a built-in offline gazetteer." />
             </label>
             <div>
               <label className={CHECKBOX_LABEL_CLASS}>
@@ -595,11 +726,9 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
                   className={CHECKBOX_CLASS}
                   data-testid="auto-locate-nominatim"
                 />
-                OpenStreetMap Nominatim (online)
+                <span>OpenStreetMap Nominatim (online)</span>
+                <Tooltip text="Sends unmatched folder and file place names (not photos) to openstreetmap.org to look up coordinates. Results are cached on this computer." />
               </label>
-              <p className="mt-1 pl-6 text-[11px] text-slate-500">
-                Sends unmatched folder and file place names (not photos) to openstreetmap.org. Results are cached on this computer.
-              </p>
             </div>
             <div>
               <label className={CHECKBOX_LABEL_CLASS}>
@@ -610,15 +739,16 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
                   className={CHECKBOX_CLASS}
                   data-testid="auto-locate-ai"
                 />
-                AI Vision (Visual similarity & ML)
+                <span>AI Vision (Visual similarity & ML)</span>
+                <Tooltip text="Matches unmatched photos against located photos using visual features, or queries a vision model. Strictly local & cached by default." />
               </label>
-              <p className="mt-1 pl-6 text-[11px] text-slate-500">
-                Matches unmatched photos against located photos using visual features, or queries a vision model. Strictly local & cached by default.
-              </p>
               {enableAi && (
                 <div className="mt-2.5 ml-6 space-y-2 rounded-lg border border-slate-800 bg-slate-900/60 p-2.5">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
-                    <span className="text-[11px] text-slate-400">Provider:</span>
+                    <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                      <span>Provider:</span>
+                      <Tooltip text="Local ONNX runs on-device using visual similarity and GeoCLIP. Ollama connects to a local vision model. Cloud Vision API connects to an OpenAI-compatible endpoint." />
+                    </span>
                     <select
                       value={aiProvider}
                       onChange={(e) => setAiProvider(e.target.value as AiLocateProvider)}
@@ -728,7 +858,10 @@ export const AutoLocateModal: React.FC<AutoLocateModalProps> = ({
               </div>
 
               <label className="flex items-center gap-3 text-xs text-slate-300">
-                <span className="shrink-0">Minimum confidence</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span>Minimum confidence</span>
+                  <Tooltip text="Filters suggestions by confidence score. Matches at or above this threshold are automatically selected for application." />
+                </span>
                 <input
                   type="range"
                   min={0.5}
